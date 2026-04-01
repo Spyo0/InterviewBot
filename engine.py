@@ -178,14 +178,25 @@ class JeSuisCoachEngine:
 
         return "\n\n---\n\n".join(context_parts)
 
-    def generate_question(self, topic: str, chapter: str = None, history: str = "") -> str:
-        """Génère une question d'entretien."""
+    def generate_question(self, topic: str, chapter: str = None, history: str = "", avg_score: float = None) -> str:
+        """Génère une question d'entretien avec difficulté progressive."""
         context = self.search_context(topic, chapter_filter=chapter)
         context_block = f"\nContexte des livres de référence :\n{context}" if context else ""
+
+        # Difficulté progressive
+        difficulty_block = ""
+        if avg_score is not None:
+            if avg_score >= 0.80:
+                difficulty_block = "\nNiveau de difficulté : ÉLEVÉ. Pose une question avancée, piège ou multi-étapes."
+            elif avg_score >= 0.50:
+                difficulty_block = "\nNiveau de difficulté : INTERMÉDIAIRE. Pose une question standard d'entretien."
+            else:
+                difficulty_block = "\nNiveau de difficulté : FONDAMENTAL. Pose une question de base pour consolider les acquis."
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
             ("human", """Génère une question d'entretien sur le thème : {topic}
+{difficulty_block}
 {history_block}
 Pose une seule question technique précise."""),
         ])
@@ -194,6 +205,7 @@ Pose une seule question technique précise."""),
         return chain.invoke({
             "context": context_block,
             "topic": topic,
+            "difficulty_block": difficulty_block,
             "history_block": f"\nQuestions déjà posées dans cette session :\n{history}" if history else "",
         })
 
