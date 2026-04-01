@@ -1,5 +1,6 @@
 """Logique RAG : LangChain + ChromaDB + providers cloud (Groq / HuggingFace)."""
 
+import json
 import os
 import re
 from collections import Counter
@@ -181,11 +182,19 @@ Donne :
 1. Un score entre 0.0 et 1.0 (précision et complétude de la réponse)
 2. Un feedback constructif en français avec les erreurs précises identifiées
 3. La réponse correcte complète si l'utilisateur s'est trompé
+4. Une liste courte des points corrects si la réponse contient des éléments valables
+5. Une liste courte des erreurs ou manques prioritaires
+6. La source la plus utile du contexte si elle est identifiable
 
-Format EXACT de réponse :
-SCORE: [nombre entre 0.0 et 1.0]
-FEEDBACK: [ton feedback détaillé]
-CORRECTION: [correction complète en LaTeX si nécessaire, sinon "Correct"]"""
+Retourne EXCLUSIVEMENT un objet JSON valide au format suivant :
+{
+  "score": 0.0,
+  "feedback": "feedback détaillé en français",
+  "correction": "correction complète en LaTeX si nécessaire, sinon 'Correct'",
+  "strengths": ["point fort 1", "point fort 2"],
+  "mistakes": ["erreur 1", "erreur 2"],
+  "source_used": "source utile ou chaîne vide"
+}"""
 
 
 class JeSuisCoachEngine:
@@ -747,24 +756,84 @@ QUESTION: [une seule question technique précise, sans donner la réponse ni éc
             "context": reference_context if reference_context else "Pas de contexte de référence disponible.",
         })
 
-        return self._parse_evaluation(raw)
+        return self._parse_structured_evaluation(raw)
 
-    def _parse_evaluation(self, raw: str) -> dict:
-        """Parse la réponse d'évaluation du LLM."""
-        result = {"score": 0.5, "feedback": raw, "correction": ""}
+    @staticmethod
+    def _extract_json_payload(raw: str) -> str:
+        """Extrait un JSON même si le modèle l'encadre dans un bloc Markdown."""
+        fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, re.DOTALL)
+        if fenced_match:
+            return fenced_match.group(1)
+
+        raw = raw.strip()
+        if raw.startswith("{") and raw.endswith("}"):
+            return raw
+
+        json_match = re.search(r"(\{.*\})", raw, re.DOTALL)
+        return json_match.group(1) if json_match else raw
+
+    def _parse_structured_evaluation(self, raw: str) -> dict:
+        """Parse une évaluation JSON et retombe sur un fallback robuste si besoin."""
+        default_result = {
+            "score": 0.5,
+            "feedback": raw.strip(),
+            "correction": "",
+            "strengths": [],
+            "mistakes": [],
+            "source_used": "",
+        }
+
+        try:
+            parsed = json.loads(self._extract_json_payload(raw))
+        except json.JSONDecodeError:
+            return self._fallback_parse_evaluation(raw, default_result)
+
+        if not isinstance(parsed, dict):
+            return default_result
+
+        score = parsed.get("score", default_result["score"])
+        try:
+            parsed_score = max(0.0, min(1.0, float(score)))
+        except (TypeError, ValueError):
+            parsed_score = default_result["score"]
+
+        return {
+            "score": parsed_score,
+            "feedback": str(parsed.get("feedback") or default_result["feedback"]).strip(),
+            "correction": str(parsed.get("correction") or "").strip(),
+            "strengths": self._coerce_string_list(parsed.get("strengths")),
+            "mistakes": self._coerce_string_list(parsed.get("mistakes")),
+            "source_used": str(parsed.get("source_used") or "").strip(),
+        }
+
+    @staticmethod
+    def _coerce_string_list(value) -> list[str]:
+        """Normalise une valeur vers une liste de chaînes exploitables."""
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
+
+    def _fallback_parse_evaluation(self, raw: str, default_result: dict) -> dict:
+        """Fallback de parsing pour les modèles qui ne renvoient pas un JSON propre."""
+        result = default_result.copy()
 
         for line in raw.split("\n"):
-            line = line.strip()
-            if line.startswith("SCORE:"):
+            stripped_line = line.strip()
+            upper_line = stripped_line.upper()
+            if upper_line.startswith("SCORE:"):
                 try:
-                    score_str = line.replace("SCORE:", "").strip()
+                    score_str = stripped_line.split(":", 1)[1].strip()
                     result["score"] = max(0.0, min(1.0, float(score_str)))
-                except ValueError:
+                except (IndexError, ValueError):
                     pass
-            elif line.startswith("FEEDBACK:"):
-                result["feedback"] = line.replace("FEEDBACK:", "").strip()
-            elif line.startswith("CORRECTION:"):
-                result["correction"] = line.replace("CORRECTION:", "").strip()
+            elif upper_line.startswith("FEEDBACK:"):
+                result["feedback"] = stripped_line.split(":", 1)[1].strip()
+            elif upper_line.startswith("CORRECTION:"):
+                result["correction"] = stripped_line.split(":", 1)[1].strip()
+            elif upper_line.startswith("SOURCE_USED:"):
+                result["source_used"] = stripped_line.split(":", 1)[1].strip()
 
         return result
 

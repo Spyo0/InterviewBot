@@ -1,11 +1,20 @@
 """Gestion SQLite : scores, temps de réponse, progression."""
 
+import json
 import sqlite3
 import os
 from datetime import datetime
 from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "quant_coach.db")
+ANSWER_OPTIONAL_COLUMNS = {
+    "correction": "TEXT",
+    "mistakes": "TEXT",
+    "strengths": "TEXT",
+    "question_type": "TEXT",
+    "difficulty": "TEXT",
+    "source_used": "TEXT",
+}
 
 
 def get_connection() -> sqlite3.Connection:
@@ -35,6 +44,12 @@ def init_db() -> None:
             response_time_s REAL NOT NULL,
             feedback TEXT,
             source_ref TEXT,
+            correction TEXT,
+            mistakes TEXT,
+            strengths TEXT,
+            question_type TEXT,
+            difficulty TEXT,
+            source_used TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         );
@@ -47,8 +62,23 @@ def init_db() -> None:
             avg_time_s REAL DEFAULT 0
         );
     """)
+    _ensure_optional_columns(cur, "answers", ANSWER_OPTIONAL_COLUMNS)
     conn.commit()
     conn.close()
+
+
+def _ensure_optional_columns(
+    cursor: sqlite3.Cursor,
+    table_name: str,
+    columns: dict[str, str],
+) -> None:
+    """Ajoute les colonnes manquantes sans réinitialiser la base existante."""
+    existing_columns = {
+        row["name"] for row in cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column_name, column_type in columns.items():
+        if column_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
 def create_session(topic: str, chapter: str = "") -> int:
@@ -72,14 +102,36 @@ def save_answer(
     response_time_s: float,
     feedback: str = "",
     source_ref: str = "",
+    correction: str = "",
+    mistakes: Optional[list[str]] = None,
+    strengths: Optional[list[str]] = None,
+    question_type: str = "",
+    difficulty: str = "",
+    source_used: str = "",
 ) -> None:
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO answers
-           (session_id, question, user_answer, score, response_time_s, feedback, source_ref, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (session_id, question, user_answer, score, response_time_s, feedback, source_ref, datetime.now().isoformat()),
+           (session_id, question, user_answer, score, response_time_s, feedback, source_ref,
+            correction, mistakes, strengths, question_type, difficulty, source_used, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            session_id,
+            question,
+            user_answer,
+            score,
+            response_time_s,
+            feedback,
+            source_ref,
+            correction,
+            json.dumps(mistakes or [], ensure_ascii=False),
+            json.dumps(strengths or [], ensure_ascii=False),
+            question_type,
+            difficulty,
+            source_used,
+            datetime.now().isoformat(),
+        ),
     )
     conn.commit()
     conn.close()
@@ -134,7 +186,13 @@ def get_answer_history(limit: int = 200) -> list[dict]:
         (limit,),
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    history = []
+    for row in rows:
+        item = dict(row)
+        item["mistakes"] = _parse_json_list(item.get("mistakes"))
+        item["strengths"] = _parse_json_list(item.get("strengths"))
+        history.append(item)
+    return history
 
 
 def get_response_times() -> list[dict]:
@@ -145,6 +203,17 @@ def get_response_times() -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def _parse_json_list(value: Optional[str]) -> list[str]:
+    """Normalise les listes sérialisées depuis SQLite."""
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 # Auto-init on import

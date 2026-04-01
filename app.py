@@ -547,6 +547,15 @@ def render_markdown_panel(title: str, content: str) -> None:
         st.markdown(content)
 
 
+def render_list_panel(title: str, items: list[str]) -> None:
+    """Affiche une liste courte dans un panneau homogène avec le reste de l'UI."""
+    if not items:
+        return
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.markdown("\n".join(f"- {item}" for item in items))
+
+
 # --- Tabs ---
 tab_interview, tab_exam, tab_pdf, tab_dashboard = st.tabs(["Entretien", "Examen", "PDF", "Dashboard"])
 
@@ -662,6 +671,9 @@ with tab_interview:
                 score = evaluation["score"]
                 feedback = evaluation["feedback"]
                 correction = evaluation["correction"]
+                strengths = evaluation.get("strengths", [])
+                mistakes = evaluation.get("mistakes", [])
+                source_used = evaluation.get("source_used", "")
 
                 save_answer(
                     st.session_state["session_id"],
@@ -671,6 +683,12 @@ with tab_interview:
                     elapsed,
                     feedback,
                     source_ref=st.session_state["current_question_source"],
+                    correction=correction,
+                    mistakes=mistakes,
+                    strengths=strengths,
+                    question_type=st.session_state["current_question_type"],
+                    difficulty=st.session_state["current_question_difficulty"],
+                    source_used=source_used,
                 )
                 update_mastery(
                     st.session_state["current_question_topic"] or topic,
@@ -706,6 +724,8 @@ with tab_interview:
 
                 # Feedback
                 render_markdown_panel("Feedback", feedback)
+                render_list_panel("Points solides", strengths)
+                render_list_panel("Points à corriger", mistakes)
                 if correction and correction.lower() != "correct":
                     render_markdown_panel("Correction", correction)
 
@@ -715,7 +735,12 @@ with tab_interview:
                     "time": elapsed,
                     "difficulty": st.session_state["current_question_difficulty"],
                     "question_type": st.session_state["current_question_type"],
+                    "feedback": feedback,
+                    "correction": correction,
+                    "strengths": strengths,
+                    "mistakes": mistakes,
                     "source_ref": st.session_state["current_question_source"],
+                    "source_used": source_used,
                     "image_path": st.session_state["current_question_image_path"],
                     "image_caption": st.session_state["current_question_image_caption"],
                 })
@@ -740,12 +765,20 @@ with tab_interview:
                     st.caption(f"Type : {item['question_type']}")
                 if item.get("source_ref"):
                     st.caption(f"Source : {item['source_ref']}")
+                if item.get("source_used"):
+                    st.caption(f"Source d'evaluation : {item['source_used']}")
                 if item.get("image_path"):
                     st.image(
                         item["image_path"],
                         caption=item.get("image_caption") or "Support visuel du PDF",
                         width="stretch",
                     )
+                if item.get("feedback"):
+                    render_markdown_panel("Feedback", item["feedback"])
+                render_list_panel("Points solides", item.get("strengths", []))
+                render_list_panel("Points à corriger", item.get("mistakes", []))
+                if item.get("correction") and item["correction"].lower() != "correct":
+                    render_markdown_panel("Correction", item["correction"])
 
     # Reset
     if st.session_state["session_id"] is not None:
@@ -927,6 +960,12 @@ with tab_exam:
                                 elapsed,
                                 evaluation["feedback"],
                                 source_ref=meta.get("display_source_ref", ""),
+                                correction=evaluation.get("correction", ""),
+                                mistakes=evaluation.get("mistakes", []),
+                                strengths=evaluation.get("strengths", []),
+                                question_type=meta.get("question_type_label", ""),
+                                difficulty=meta.get("difficulty", "Intermédiaire"),
+                                source_used=evaluation.get("source_used", ""),
                             )
                             update_mastery(st.session_state["exam_topic"], evaluation["score"], elapsed)
                             results.append({
@@ -936,6 +975,7 @@ with tab_exam:
                                 "difficulty": meta.get("difficulty", "Intermédiaire"),
                                 "question_type": meta.get("question_type_label", ""),
                                 "source_ref": meta.get("display_source_ref", ""),
+                                "source_used": evaluation.get("source_used", ""),
                                 "image_path": meta.get("image_path"),
                                 "image_caption": meta.get("image_caption", ""),
                                 **evaluation,
@@ -994,6 +1034,8 @@ with tab_exam:
                     st.markdown(f"**Type :** {r['question_type']}")
                 if r.get("source_ref"):
                     st.markdown(f"**Source :** {r['source_ref']}")
+                if r.get("source_used"):
+                    st.markdown(f"**Source d'evaluation :** {r['source_used']}")
                 if r.get("image_path"):
                     st.image(
                         r["image_path"],
@@ -1004,6 +1046,8 @@ with tab_exam:
                 st.markdown(r["answer"])
                 st.markdown("**Feedback**")
                 st.markdown(r["feedback"])
+                render_list_panel("Points solides", r.get("strengths", []))
+                render_list_panel("Points à corriger", r.get("mistakes", []))
                 if r["correction"] and r["correction"].lower() != "correct":
                     st.markdown("**Correction**")
                     st.markdown(r["correction"])
