@@ -388,7 +388,7 @@ TOPICS = [
 ]
 
 DIFFICULTY_OPTIONS = ["Auto", "Fondamental", "Intermédiaire", "Élevé"]
-ENGINE_API_VERSION = "2026-04-01-context-display-v1"
+ENGINE_API_VERSION = "2026-04-01-question-validation-v1"
 
 
 # --- Init Engine ---
@@ -415,6 +415,7 @@ def init_session_state():
         "current_question": None,
         "current_question_topic": None,
         "current_question_difficulty": "Auto",
+        "current_question_type": "",
         "current_question_context": "",
         "current_question_source": "",
         "current_question_image_path": None,
@@ -422,6 +423,7 @@ def init_session_state():
         "question_start_time": None,
         "session_history": [],
         "questions_asked": [],
+        "question_types_asked": [],
         "question_sources": [],
         # Mode examen
         "exam_mode": False,
@@ -599,6 +601,8 @@ with tab_interview:
                     avg_score=avg,
                     excluded_sources=st.session_state["question_sources"],
                     difficulty_level=None if difficulty_label == "Auto" else difficulty_label,
+                    recent_questions=st.session_state["questions_asked"],
+                    recent_question_types=st.session_state["question_types_asked"],
                 )
         except ValueError as exc:
             st.warning(str(exc))
@@ -609,12 +613,14 @@ with tab_interview:
             st.session_state["current_question"] = question_payload["question"]
             st.session_state["current_question_topic"] = topic
             st.session_state["current_question_difficulty"] = question_payload["difficulty"]
+            st.session_state["current_question_type"] = question_payload.get("question_type_label", "")
             st.session_state["current_question_context"] = question_payload["context"]
             st.session_state["current_question_source"] = question_payload.get("display_source_ref", "")
             st.session_state["current_question_image_path"] = question_payload.get("image_path")
             st.session_state["current_question_image_caption"] = question_payload.get("image_caption", "")
             st.session_state["question_start_time"] = time.time()
             st.session_state["questions_asked"].append(question_payload["question"])
+            st.session_state["question_types_asked"].append(question_payload.get("question_type", "application"))
             st.session_state["question_sources"].append(question_payload["source_ref"])
 
     # Display question
@@ -625,6 +631,8 @@ with tab_interview:
 
         render_markdown_panel("Question", st.session_state["current_question"])
         st.caption(f"Difficulte de la question : {st.session_state['current_question_difficulty']}")
+        if st.session_state["current_question_type"]:
+            st.caption(f"Type de question : {st.session_state['current_question_type']}")
         if st.session_state["current_question_source"]:
             st.caption(f"Source PDF utilisee : {st.session_state['current_question_source']}")
         if st.session_state["current_question_image_path"]:
@@ -706,6 +714,7 @@ with tab_interview:
                     "score": score,
                     "time": elapsed,
                     "difficulty": st.session_state["current_question_difficulty"],
+                    "question_type": st.session_state["current_question_type"],
                     "source_ref": st.session_state["current_question_source"],
                     "image_path": st.session_state["current_question_image_path"],
                     "image_caption": st.session_state["current_question_image_caption"],
@@ -727,6 +736,8 @@ with tab_interview:
                 st.write(item["question"])
                 if item.get("difficulty"):
                     st.caption(f"Difficulte : {item['difficulty']}")
+                if item.get("question_type"):
+                    st.caption(f"Type : {item['question_type']}")
                 if item.get("source_ref"):
                     st.caption(f"Source : {item['source_ref']}")
                 if item.get("image_path"):
@@ -744,12 +755,14 @@ with tab_interview:
             st.session_state["current_question"] = None
             st.session_state["current_question_topic"] = None
             st.session_state["current_question_difficulty"] = "Auto"
+            st.session_state["current_question_type"] = ""
             st.session_state["current_question_context"] = ""
             st.session_state["current_question_source"] = ""
             st.session_state["current_question_image_path"] = None
             st.session_state["current_question_image_caption"] = ""
             st.session_state["session_history"] = []
             st.session_state["questions_asked"] = []
+            st.session_state["question_types_asked"] = []
             st.session_state["question_sources"] = []
             st.rerun()
 
@@ -790,6 +803,8 @@ with tab_exam:
                     question_payload = engine.generate_question(
                         topic=exam_topic,
                         difficulty_level=None if exam_difficulty == "Auto" else exam_difficulty,
+                        recent_questions=[],
+                        recent_question_types=[],
                     )
             except ValueError as exc:
                 st.warning(str(exc))
@@ -832,6 +847,8 @@ with tab_exam:
         current_question_meta = st.session_state["exam_question_meta"][idx]
         render_markdown_panel("Question", current_q)
         st.caption(f"Difficulte de la question : {current_question_meta.get('difficulty', 'Intermédiaire')}")
+        if current_question_meta.get("question_type_label"):
+            st.caption(f"Type de question : {current_question_meta['question_type_label']}")
         if current_question_meta.get("display_source_ref"):
             st.caption(f"Source PDF utilisee : {current_question_meta['display_source_ref']}")
         if current_question_meta.get("image_path"):
@@ -870,6 +887,12 @@ with tab_exam:
                                 difficulty_level=None
                                 if st.session_state["exam_difficulty"] == "Auto"
                                 else st.session_state["exam_difficulty"],
+                                recent_questions=st.session_state["exam_questions"],
+                                recent_question_types=[
+                                    item.get("question_type")
+                                    for item in st.session_state["exam_question_meta"]
+                                    if item.get("question_type")
+                                ],
                             )
                     except ValueError as exc:
                         st.warning(str(exc))
@@ -911,6 +934,7 @@ with tab_exam:
                                 "answer": a["answer"],
                                 "time": elapsed,
                                 "difficulty": meta.get("difficulty", "Intermédiaire"),
+                                "question_type": meta.get("question_type_label", ""),
                                 "source_ref": meta.get("display_source_ref", ""),
                                 "image_path": meta.get("image_path"),
                                 "image_caption": meta.get("image_caption", ""),
@@ -966,6 +990,8 @@ with tab_exam:
                 st.markdown(r["question"])
                 if r.get("difficulty"):
                     st.markdown(f"**Difficulte :** {r['difficulty']}")
+                if r.get("question_type"):
+                    st.markdown(f"**Type :** {r['question_type']}")
                 if r.get("source_ref"):
                     st.markdown(f"**Source :** {r['source_ref']}")
                 if r.get("image_path"):

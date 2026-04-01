@@ -2,6 +2,8 @@
 
 import os
 import re
+from collections import Counter
+from difflib import SequenceMatcher
 from typing import Optional
 from dotenv import load_dotenv
 import chromadb
@@ -17,6 +19,8 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CHROMA_DIR = os.path.join(DATA_DIR, "chromadb")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 VALIDATION_THRESHOLD = float(os.getenv("VALIDATION_THRESHOLD", "0.70"))
+MAX_GENERATION_ATTEMPTS = int(os.getenv("MAX_GENERATION_ATTEMPTS", "3"))
+SOURCE_SIMILARITY_LIMIT = float(os.getenv("SOURCE_SIMILARITY_LIMIT", "0.82"))
 
 # Providers cloud
 PROVIDERS = {
@@ -34,6 +38,39 @@ DIFFICULTY_INSTRUCTIONS = {
     "Fondamental": "\nNiveau de difficulté : FONDAMENTAL. Pose une question de base pour consolider les acquis.",
     "Intermédiaire": "\nNiveau de difficulté : INTERMÉDIAIRE. Pose une question standard d'entretien.",
     "Élevé": "\nNiveau de difficulté : ÉLEVÉ. Pose une question avancée, piège ou multi-étapes.",
+}
+QUESTION_TYPES_BY_DIFFICULTY = {
+    "Fondamental": ["definition", "application", "mental_math"],
+    "Intermédiaire": ["application", "definition", "proof", "mental_math"],
+    "Élevé": ["application", "proof", "visual_interpretation", "mental_math"],
+}
+QUESTION_TYPE_LABELS = {
+    "definition": "Compréhension / définition",
+    "application": "Application pratique",
+    "mental_math": "Calcul mental / approximation",
+    "proof": "Raisonnement / démonstration",
+    "visual_interpretation": "Interprétation de support visuel",
+}
+QUESTION_TYPE_INSTRUCTIONS = {
+    "definition": (
+        "Pose une question de compréhension ou de reformulation. "
+        "Ne demande pas de réciter une définition mot pour mot : exige une explication utile en entretien."
+    ),
+    "application": (
+        "Pose une question d'application du concept à un cas simple ou réaliste. "
+        "L'utilisateur doit expliquer comment utiliser l'idée, pas seulement la nommer."
+    ),
+    "mental_math": (
+        "Pose un calcul mental ou une approximation rapide, en gardant une difficulté raisonnable "
+        "et sans exiger de contexte affiché si ce n'est pas indispensable."
+    ),
+    "proof": (
+        "Pose une question de raisonnement rigoureux ou de mini-démonstration. "
+        "La réponse attendue doit nécessiter des étapes, pas une phrase isolée."
+    ),
+    "visual_interpretation": (
+        "Pose une question qui dépend explicitement d'une figure, d'un tableau, d'un schéma ou d'un graphe présent dans le support."
+    ),
 }
 VISUAL_KEYWORDS = (
     "figure",
@@ -73,6 +110,12 @@ INLINE_SOURCE_PATTERNS = (
     "réponse attendue :",
     "réponse attendue:",
     "expected answer:",
+)
+TYPE_PREFIX_PATTERNS = (
+    "type :",
+    "type:",
+    "question :",
+    "question:",
 )
 
 
@@ -316,6 +359,154 @@ class JeSuisCoachEngine:
         question_lower = question.lower()
         return any(keyword in question_lower for keyword in CONTEXT_DISPLAY_KEYWORDS)
 
+    @staticmethod
+    def _normalize_similarity_text(text: str) -> str:
+        normalized = re.sub(r"\$.*?\$", " ", text)
+        normalized = re.sub(r"[^a-z0-9à-ÿ]+", " ", normalized.lower())
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _select_question_type(
+        self,
+        topic: str,
+        difficulty: str,
+        selected_matches: list[dict],
+        recent_question_types: Optional[list[str]] = None,
+    ) -> str:
+        """Choisit un type de question cohérent avec la difficulté et varie la session."""
+        available_types = list(QUESTION_TYPES_BY_DIFFICULTY[difficulty])
+        normalized_topic = topic.lower()
+        if "calcul mental" not in normalized_topic and "approximation" not in normalized_topic:
+            available_types = [
+                question_type for question_type in available_types
+                if question_type != "mental_math"
+            ]
+
+        has_visual_support = any(match["metadata"].get("has_visuals") for match in selected_matches)
+        if not has_visual_support:
+            available_types = [
+                question_type for question_type in available_types
+                if question_type != "visual_interpretation"
+            ]
+
+        recent_counts = Counter(recent_question_types or [])
+        base_priority = {question_type: index for index, question_type in enumerate(available_types)}
+        available_types.sort(key=lambda question_type: (recent_counts[question_type], base_priority[question_type]))
+        return available_types[0] if available_types else "application"
+
+    @staticmethod
+    def _parse_generated_question(raw: str, fallback_question_type: str) -> dict:
+        """Parse une génération structurée TYPE/QUESTION tout en gardant un fallback robuste."""
+        type_match = re.search(r"(?im)^TYPE:\s*(.+)$", raw)
+        question_match = re.search(r"(?ims)^QUESTION:\s*(.+)$", raw)
+
+        question_type = fallback_question_type
+        if type_match:
+            raw_question_type = type_match.group(1).strip().lower()
+            if raw_question_type in QUESTION_TYPE_LABELS:
+                question_type = raw_question_type
+
+        question = question_match.group(1).strip() if question_match else raw.strip()
+        return {
+            "question_type": question_type,
+            "question": question,
+        }
+
+    def _max_source_similarity(self, question: str, matches: list[dict]) -> float:
+        """Mesure si la question recopie trop directement le support source."""
+        normalized_question = self._normalize_similarity_text(question)
+        if not normalized_question:
+            return 0.0
+
+        candidates = []
+        for match in matches:
+            raw_text = match["text"]
+            candidates.append(raw_text)
+            candidates.extend(
+                sentence.strip()
+                for sentence in re.split(r"(?<=[.!?])\s+|\n+", raw_text)
+                if len(sentence.strip()) >= 40
+            )
+
+        best_similarity = 0.0
+        for candidate in candidates:
+            normalized_candidate = self._normalize_similarity_text(candidate)
+            if not normalized_candidate:
+                continue
+            similarity = SequenceMatcher(None, normalized_question, normalized_candidate).ratio()
+            best_similarity = max(best_similarity, similarity)
+
+        return best_similarity
+
+    def _validate_generated_question(
+        self,
+        question: str,
+        question_type: str,
+        matches: list[dict],
+        recent_questions: Optional[list[str]] = None,
+    ) -> dict:
+        """Valide un énoncé avant affichage pour éviter les questions faibles ou trop copiées."""
+        issues = []
+        validation_score = 1.0
+        word_count = len(question.split())
+
+        if self._question_has_answer_leak(question):
+            issues.append("answer_leak")
+            validation_score -= 0.70
+
+        normalized_question = question.lower()
+        if any(pattern in normalized_question for pattern in INLINE_SOURCE_PATTERNS):
+            issues.append("inline_source")
+            validation_score -= 0.50
+
+        min_word_count = 7 if question_type == "mental_math" else 10
+        if word_count < min_word_count:
+            issues.append("too_short")
+            validation_score -= 0.20
+
+        source_similarity = self._max_source_similarity(question, matches)
+        if source_similarity >= SOURCE_SIMILARITY_LIMIT:
+            issues.append("too_close_to_source")
+            validation_score -= 0.35
+
+        if recent_questions:
+            normalized_recent_questions = {
+                self._normalize_similarity_text(previous_question)
+                for previous_question in recent_questions[-5:]
+            }
+            if self._normalize_similarity_text(question) in normalized_recent_questions:
+                issues.append("duplicate_question")
+                validation_score -= 0.25
+
+        if question_type == "visual_interpretation" and not any(
+            match["metadata"].get("has_visuals") for match in matches
+        ):
+            issues.append("missing_visual_support")
+            validation_score -= 0.30
+
+        return {
+            "is_valid": validation_score >= VALIDATION_THRESHOLD and not issues,
+            "score": max(0.0, validation_score),
+            "issues": issues,
+            "source_similarity": source_similarity,
+        }
+
+    @staticmethod
+    def _build_retry_guidance(validation: dict) -> str:
+        """Construit une consigne de régénération à partir des défauts constatés."""
+        if not validation["issues"]:
+            return ""
+
+        issue_messages = {
+            "answer_leak": "- La question précédente contenait déjà un élément de réponse. Reformule sans donner la solution.",
+            "inline_source": "- La question précédente réintégrait la source dans l'énoncé. N'affiche aucune référence de support dans le texte.",
+            "too_short": "- La question précédente était trop courte. Pose une vraie question d'entretien avec assez de matière pour être évaluée.",
+            "too_close_to_source": "- La question précédente copiait trop directement le support. Reformule-la sous un angle d'entretien, de compréhension ou d'application.",
+            "duplicate_question": "- La question précédente répétait trop ce qui a déjà été demandé. Choisis un autre angle.",
+            "missing_visual_support": "- La question précédente demandait une interprétation visuelle sans support exploitable. Choisis un autre type de question.",
+        }
+        retry_lines = [issue_messages[issue] for issue in validation["issues"] if issue in issue_messages]
+        return "\n".join(retry_lines)
+
     def _resolve_visual_support(self, matches: list[dict], question: str) -> dict:
         """Retourne une preview de page quand un support visuel est disponible ou nécessaire."""
         question_needs_visual = self._question_needs_visual(question)
@@ -363,7 +554,7 @@ class JeSuisCoachEngine:
         for line in question.splitlines():
             stripped_line = line.strip()
             stripped_lower = stripped_line.lower()
-            if any(stripped_lower.startswith(pattern) for pattern in INLINE_SOURCE_PATTERNS):
+            if any(stripped_lower.startswith(pattern) for pattern in INLINE_SOURCE_PATTERNS + TYPE_PREFIX_PATTERNS):
                 continue
             cleaned_lines.append(line)
 
@@ -422,6 +613,8 @@ Question à réécrire :
         avg_score: float = None,
         excluded_sources: Optional[list[str]] = None,
         difficulty_level: Optional[str] = None,
+        recent_questions: Optional[list[str]] = None,
+        recent_question_types: Optional[list[str]] = None,
     ) -> dict:
         """Génère une question d'entretien à partir des chapitres PDF pertinents."""
         selected_matches = self.select_relevant_chapters(
@@ -440,36 +633,92 @@ Question à réécrire :
             avg_score=avg_score,
             difficulty_level=difficulty_level,
         )
+        selected_question_type = self._select_question_type(
+            topic=topic,
+            difficulty=resolved_difficulty,
+            selected_matches=selected_matches,
+            recent_question_types=recent_question_types,
+        )
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
             ("human", """Génère une question d'entretien sur le thème : {topic}
 Appuie-toi prioritairement sur les extraits PDF fournis ci-dessus.
 Choisis l'angle le plus pertinent parmi les chapitres remontés pour ce thème.
+Type de question imposé : {question_type_label}
+Consigne spécifique au type :
+{question_type_instruction}
 {difficulty_block}
 {history_block}
-Pose une seule question technique précise, sans donner la réponse ni écrire la source dans le texte."""),
+{retry_guidance}
+Format EXACT :
+TYPE: {question_type}
+QUESTION: [une seule question technique précise, sans donner la réponse ni écrire la source dans le texte]"""),
         ])
 
         chain = prompt | self.llm | StrOutputParser()
-        raw_question = chain.invoke({
-            "context": context_block,
-            "topic": topic,
-            "difficulty_block": difficulty_block,
-            "history_block": f"\nQuestions déjà posées dans cette session :\n{history}" if history else "",
-        })
-        question = self._normalize_question(raw_question)
+        best_candidate = None
+        retry_guidance = ""
+        question_type = selected_question_type
+        question = ""
 
-        if self._question_has_answer_leak(question):
-            repaired_question = self._repair_question(topic=topic, question=question)
-            if repaired_question:
-                question = repaired_question
+        for attempt in range(MAX_GENERATION_ATTEMPTS):
+            raw_question = chain.invoke({
+                "context": context_block,
+                "topic": topic,
+                "question_type": question_type,
+                "question_type_label": QUESTION_TYPE_LABELS[question_type],
+                "question_type_instruction": QUESTION_TYPE_INSTRUCTIONS[question_type],
+                "difficulty_block": difficulty_block,
+                "history_block": f"\nQuestions déjà posées dans cette session :\n{history}" if history else "",
+                "retry_guidance": retry_guidance,
+            })
+            parsed_candidate = self._parse_generated_question(raw_question, fallback_question_type=question_type)
+            question_type = parsed_candidate["question_type"]
+            question = self._normalize_question(parsed_candidate["question"])
+
+            if self._question_has_answer_leak(question):
+                repaired_question = self._repair_question(topic=topic, question=question)
+                if repaired_question:
+                    question = repaired_question
+
+            validation = self._validate_generated_question(
+                question=question,
+                question_type=question_type,
+                matches=selected_matches,
+                recent_questions=recent_questions,
+            )
+            candidate = {
+                "question": question,
+                "question_type": question_type,
+                "validation": validation,
+            }
+            if best_candidate is None or validation["score"] > best_candidate["validation"]["score"]:
+                best_candidate = candidate
+
+            if validation["is_valid"]:
+                break
+
+            retry_guidance = self._build_retry_guidance(validation)
+            if "missing_visual_support" in validation["issues"]:
+                question_type = self._select_question_type(
+                    topic=topic,
+                    difficulty=resolved_difficulty,
+                    selected_matches=selected_matches,
+                    recent_question_types=(recent_question_types or []) + [question_type],
+                )
+        else:
+            if best_candidate is not None:
+                question = best_candidate["question"]
+                question_type = best_candidate["question_type"]
 
         source_refs = [match["source_ref"] for match in selected_matches]
         should_display_context = self._question_needs_context_display(question)
         visual_support = self._resolve_visual_support(selected_matches, question)
         return {
             "question": question,
+            "question_type": question_type,
+            "question_type_label": QUESTION_TYPE_LABELS.get(question_type, "Application pratique"),
             "context": context,
             "source_ref": source_refs[0],
             "display_source_ref": source_refs[0] if should_display_context else "",
