@@ -319,6 +319,49 @@ st.markdown("""
         overflow: hidden;
     }
 
+    /* ── Timer ── */
+    .timer-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.6rem 1rem;
+        background: #111;
+        border: 1px solid #1e1e1e;
+        border-radius: 10px;
+        margin: 0.8rem 0;
+    }
+    .timer-display {
+        font-family: 'Inter', monospace;
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #e5e5e5;
+        font-variant-numeric: tabular-nums;
+    }
+    .timer-display.warning { color: #fbbf24; }
+    .timer-display.danger { color: #f87171; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.5; } }
+    .timer-label {
+        font-size: 0.7rem;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* ── Exam mode ── */
+    .exam-progress {
+        display: flex;
+        gap: 0.3rem;
+        margin: 0.8rem 0;
+    }
+    .exam-dot {
+        width: 28px; height: 4px;
+        border-radius: 2px;
+        background: #222;
+    }
+    .exam-dot.done { background: #818cf8; }
+    .exam-dot.current { background: #4ade80; }
+
     /* ── Toast / alerts ── */
     .stAlert { border-radius: 8px !important; }
 
@@ -358,6 +401,13 @@ def init_session_state():
         "question_start_time": None,
         "session_history": [],
         "questions_asked": [],
+        # Mode examen
+        "exam_mode": False,
+        "exam_questions": [],
+        "exam_answers": [],
+        "exam_index": 0,
+        "exam_topic": None,
+        "exam_results": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -420,13 +470,49 @@ if st.session_state["engine"] is None or st.session_state.get("_engine_key") != 
 engine: JeSuisCoachEngine = st.session_state["engine"]
 
 
+# --- Helper: compute session avg score ---
+def _session_avg_score() -> float | None:
+    hist = st.session_state["session_history"]
+    if not hist:
+        return None
+    return sum(h["score"] for h in hist) / len(hist)
+
+
+# --- Helper: JS timer (no rerun) ---
+def render_timer(duration_s: int = 180):
+    """Inject a JS countdown timer that runs client-side without Streamlit reruns."""
+    st.markdown(f"""
+    <div class="timer-container">
+        <span class="timer-label">Temps restant</span>
+        <span class="timer-display" id="countdown-timer">{duration_s // 60}:{duration_s % 60:02d}</span>
+    </div>
+    <script>
+        (function() {{
+            var total = {duration_s};
+            var el = document.getElementById('countdown-timer');
+            if (!el) return;
+            var iv = setInterval(function() {{
+                total--;
+                if (total <= 0) {{ clearInterval(iv); el.textContent = "0:00"; el.className = "timer-display danger"; return; }}
+                var m = Math.floor(total / 60);
+                var s = total % 60;
+                el.textContent = m + ":" + (s < 10 ? "0" : "") + s;
+                if (total <= 30) el.className = "timer-display danger";
+                else if (total <= 60) el.className = "timer-display warning";
+                else el.className = "timer-display";
+            }}, 1000);
+        }})();
+    </script>
+    """, unsafe_allow_html=True)
+
+
 # --- Tabs ---
-tab_interview, tab_pdf, tab_dashboard = st.tabs(["Entretien", "PDF", "Dashboard"])
+tab_interview, tab_exam, tab_pdf, tab_dashboard = st.tabs(["Entretien", "Examen", "PDF", "Dashboard"])
 
 
 # ===================== TAB: ENTRETIEN =====================
 with tab_interview:
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         topic = st.selectbox("Theme", TOPICS, label_visibility="collapsed",
                              help="Choisissez un theme")
@@ -437,6 +523,11 @@ with tab_interview:
                                help="Filtrer par chapitre")
         if chapter == "Tous":
             chapter = None
+    with col3:
+        timer_duration = st.selectbox("Timer", [0, 60, 120, 180, 300],
+                                      format_func=lambda x: "Off" if x == 0 else f"{x//60}min",
+                                      index=3, label_visibility="collapsed",
+                                      help="Compte a rebours")
 
     if st.button("Nouvelle question", use_container_width=True, type="primary"):
         if st.session_state["session_id"] is None:
@@ -446,8 +537,10 @@ with tab_interview:
             f"- {q}" for q in st.session_state["questions_asked"][-5:]
         )
 
+        avg = _session_avg_score()
+
         with st.spinner("Generation..."):
-            question = engine.generate_question(topic, chapter, history_text)
+            question = engine.generate_question(topic, chapter, history_text, avg_score=avg)
 
         st.session_state["current_question"] = question
         st.session_state["question_start_time"] = time.time()
@@ -455,6 +548,10 @@ with tab_interview:
 
     # Display question
     if st.session_state["current_question"]:
+        # Timer
+        if timer_duration > 0:
+            render_timer(timer_duration)
+
         st.markdown(
             f'<div class="question-block">{st.session_state["current_question"]}</div>',
             unsafe_allow_html=True,
@@ -547,6 +644,171 @@ with tab_interview:
             st.session_state["current_question"] = None
             st.session_state["session_history"] = []
             st.session_state["questions_asked"] = []
+            st.rerun()
+
+
+# ===================== TAB: EXAMEN =====================
+EXAM_COUNT = 10
+
+with tab_exam:
+    if not st.session_state["exam_mode"] and st.session_state["exam_results"] is None:
+        # Config exam
+        st.markdown('<div class="section-title">Mode examen</div>', unsafe_allow_html=True)
+        st.caption(f"{EXAM_COUNT} questions d'affilee · Pas de feedback entre les questions · Correction a la fin")
+
+        exam_topic = st.selectbox("Theme de l'examen", TOPICS, key="exam_topic_select")
+
+        if st.button("Lancer l'examen", use_container_width=True, type="primary"):
+            st.session_state["exam_mode"] = True
+            st.session_state["exam_topic"] = exam_topic
+            st.session_state["exam_questions"] = []
+            st.session_state["exam_answers"] = []
+            st.session_state["exam_index"] = 0
+            st.session_state["exam_results"] = None
+            st.session_state["session_id"] = create_session(exam_topic, "examen")
+
+            # Generate first question
+            with st.spinner("Preparation de l'examen..."):
+                q = engine.generate_question(exam_topic)
+            st.session_state["exam_questions"].append(q)
+            st.session_state["question_start_time"] = time.time()
+            st.rerun()
+
+    elif st.session_state["exam_mode"]:
+        idx = st.session_state["exam_index"]
+        total = EXAM_COUNT
+
+        # Progress bar
+        dots_html = '<div class="exam-progress">'
+        for i in range(total):
+            if i < idx:
+                dots_html += '<div class="exam-dot done"></div>'
+            elif i == idx:
+                dots_html += '<div class="exam-dot current"></div>'
+            else:
+                dots_html += '<div class="exam-dot"></div>'
+        dots_html += '</div>'
+        st.markdown(dots_html, unsafe_allow_html=True)
+
+        st.markdown(f'<div class="section-title">Question {idx + 1} / {total}</div>', unsafe_allow_html=True)
+
+        # Timer
+        render_timer(180)
+
+        # Question
+        current_q = st.session_state["exam_questions"][idx]
+        st.markdown(
+            f'<div class="question-block">{current_q}</div>',
+            unsafe_allow_html=True,
+        )
+
+        answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
+                              placeholder="Ecrivez votre reponse...", key=f"exam_answer_{idx}")
+
+        if st.button("Question suivante" if idx < total - 1 else "Terminer l'examen",
+                      use_container_width=True, type="primary"):
+            if not answer.strip():
+                st.warning("Entrez une reponse.")
+            else:
+                elapsed = time.time() - st.session_state["question_start_time"]
+                st.session_state["exam_answers"].append({
+                    "answer": answer,
+                    "time": elapsed,
+                })
+
+                if idx < total - 1:
+                    # Generate next question
+                    with st.spinner("Question suivante..."):
+                        q = engine.generate_question(
+                            st.session_state["exam_topic"],
+                            history="\n".join(f"- {q}" for q in st.session_state["exam_questions"][-5:])
+                        )
+                    st.session_state["exam_questions"].append(q)
+                    st.session_state["exam_index"] = idx + 1
+                    st.session_state["question_start_time"] = time.time()
+                    st.rerun()
+                else:
+                    # End exam — evaluate all answers
+                    st.session_state["exam_mode"] = False
+                    results = []
+                    with st.spinner("Correction de l'examen..."):
+                        for i, (q, a) in enumerate(zip(
+                            st.session_state["exam_questions"],
+                            st.session_state["exam_answers"]
+                        )):
+                            evaluation = engine.evaluate_answer(q, a["answer"], st.session_state["exam_topic"])
+                            elapsed = a["time"]
+                            save_answer(
+                                st.session_state["session_id"], q, a["answer"],
+                                evaluation["score"], elapsed, evaluation["feedback"],
+                            )
+                            update_mastery(st.session_state["exam_topic"], evaluation["score"], elapsed)
+                            results.append({
+                                "question": q,
+                                "answer": a["answer"],
+                                "time": elapsed,
+                                **evaluation,
+                            })
+                    st.session_state["exam_results"] = results
+                    st.rerun()
+
+    elif st.session_state["exam_results"] is not None:
+        # Display results
+        results = st.session_state["exam_results"]
+        avg = sum(r["score"] for r in results) / len(results)
+        avg_time = sum(r["time"] for r in results) / len(results)
+        passed = sum(1 for r in results if r["score"] >= 0.70)
+
+        st.markdown('<div class="section-title">Resultats de l\'examen</div>', unsafe_allow_html=True)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            badge = "score-pass" if avg >= 0.70 else ("score-mid" if avg >= 0.50 else "score-fail")
+            st.markdown(
+                f'<div class="metric-card"><div class="value">'
+                f'<span class="score-badge {badge}">{int(avg*100)}%</span>'
+                f'</div><div class="label">Score moyen</div></div>',
+                unsafe_allow_html=True,
+            )
+        with c2:
+            st.markdown(
+                f'<div class="metric-card"><div class="value">{passed}/{len(results)}</div>'
+                f'<div class="label">Questions validees</div></div>',
+                unsafe_allow_html=True,
+            )
+        with c3:
+            st.markdown(
+                f'<div class="metric-card"><div class="value">{avg_time:.0f}s</div>'
+                f'<div class="label">Temps moyen</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Correction detaillee</div>', unsafe_allow_html=True)
+
+        for i, r in enumerate(results, 1):
+            score_pct = int(r["score"] * 100)
+            if r["score"] >= 0.70:
+                badge_class = "score-pass"
+            elif r["score"] >= 0.50:
+                badge_class = "score-mid"
+            else:
+                badge_class = "score-fail"
+            with st.expander(f"Q{i}  ·  {score_pct}%  ·  {r['time']:.0f}s"):
+                st.markdown(f"**Question :** {r['question']}")
+                st.markdown(f"**Reponse :** {r['answer']}")
+                st.markdown(f"**Feedback :** {r['feedback']}")
+                if r["correction"] and r["correction"].lower() != "correct":
+                    st.markdown(f"**Correction :** {r['correction']}")
+
+        if st.button("Nouvel examen", use_container_width=True, type="primary"):
+            st.session_state["exam_mode"] = False
+            st.session_state["exam_questions"] = []
+            st.session_state["exam_answers"] = []
+            st.session_state["exam_index"] = 0
+            st.session_state["exam_results"] = None
+            st.session_state["exam_topic"] = None
+            st.session_state["session_id"] = None
             st.rerun()
 
 
