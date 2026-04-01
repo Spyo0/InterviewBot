@@ -8,7 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from engine import JeSuisCoachEngine
+from engine import JeSuisCoachEngine, PROVIDERS
 from database import (
     create_session,
     save_answer,
@@ -346,8 +346,8 @@ TOPICS = [
 
 # --- Init Engine ---
 @st.cache_resource
-def load_engine(model: str):
-    return JeSuisCoachEngine(model_name=model)
+def load_engine(provider: str, model: str):
+    return JeSuisCoachEngine(provider=provider, model_name=model)
 
 
 def init_session_state():
@@ -379,18 +379,43 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- Model selector ---
+# --- Provider & Model selector ---
 with st.expander("Parametres", expanded=False):
-    default_model = os.getenv("OLLAMA_MODEL", "llama3")
-    model_options = ["llama3", "mistral", "llama3.1"]
-    default_index = model_options.index(default_model) if default_model in model_options else 0
-    model_choice = st.selectbox("Modele Ollama", model_options, index=default_index, label_visibility="collapsed")
+    default_provider = os.getenv("LLM_PROVIDER", "groq")
+    provider_keys = list(PROVIDERS.keys())
+    provider_labels = [PROVIDERS[k]["label"] for k in provider_keys]
+    default_p_idx = provider_keys.index(default_provider) if default_provider in provider_keys else 0
+
+    provider_choice = st.selectbox(
+        "Provider", provider_labels, index=default_p_idx,
+        help="Groq = ultra-rapide, HuggingFace = large choix de modeles"
+    )
+    provider_key = provider_keys[provider_labels.index(provider_choice)]
+
+    model_options = PROVIDERS[provider_key]["models"]
+    env_defaults = {
+        "groq": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "huggingface": os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.3"),
+    }
+    default_model = env_defaults.get(provider_key, model_options[0])
+    default_m_idx = model_options.index(default_model) if default_model in model_options else 0
+    model_choice = st.selectbox("Modele", model_options, index=default_m_idx)
+
+    if provider_key == "groq":
+        st.caption("Groq : inference ultra-rapide, 0 RAM locale. Cle API requise dans .env")
+    else:
+        st.caption("HuggingFace : inference cloud gratuite. Token API requis dans .env")
 
 # Load engine
-if st.session_state["engine"] is None or st.session_state.get("_model") != model_choice:
+engine_key = f"{provider_key}:{model_choice}"
+if st.session_state["engine"] is None or st.session_state.get("_engine_key") != engine_key:
     with st.spinner("Chargement du moteur..."):
-        st.session_state["engine"] = load_engine(model_choice)
-        st.session_state["_model"] = model_choice
+        try:
+            st.session_state["engine"] = load_engine(provider_key, model_choice)
+            st.session_state["_engine_key"] = engine_key
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
 
 engine: JeSuisCoachEngine = st.session_state["engine"]
 
