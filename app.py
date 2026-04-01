@@ -1,5 +1,6 @@
 """Je-Suis-Coach-AI : Simulateur d'entretien"""
 
+import inspect
 import os
 import time
 from dotenv import load_dotenv
@@ -387,12 +388,24 @@ TOPICS = [
 ]
 
 DIFFICULTY_OPTIONS = ["Auto", "Fondamental", "Intermédiaire", "Élevé"]
+ENGINE_API_VERSION = "2026-04-01-difficulty-v1"
 
 
 # --- Init Engine ---
 @st.cache_resource
-def load_engine(provider: str, model: str):
+def load_engine(provider: str, model: str, api_version: str):
+    """Charge le moteur et invalide proprement le cache quand son API évolue."""
+    _ = api_version
     return JeSuisCoachEngine(provider=provider, model_name=model)
+
+
+def engine_supports_difficulty(engine: JeSuisCoachEngine) -> bool:
+    """Vérifie que l'instance courante expose bien la nouvelle API de génération."""
+    try:
+        parameters = inspect.signature(engine.generate_question).parameters
+    except (TypeError, ValueError):
+        return False
+    return "difficulty_level" in parameters
 
 
 def init_session_state():
@@ -467,11 +480,19 @@ with st.expander("Parametres", expanded=False):
 
 # Load engine
 engine_key = f"{provider_key}:{model_choice}"
-if st.session_state["engine"] is None or st.session_state.get("_engine_key") != engine_key:
+current_engine = st.session_state.get("engine")
+should_reload_engine = (
+    current_engine is None
+    or st.session_state.get("_engine_key") != engine_key
+    or st.session_state.get("_engine_api_version") != ENGINE_API_VERSION
+    or not engine_supports_difficulty(current_engine)
+)
+if should_reload_engine:
     with st.spinner("Chargement du moteur..."):
         try:
-            st.session_state["engine"] = load_engine(provider_key, model_choice)
+            st.session_state["engine"] = load_engine(provider_key, model_choice, ENGINE_API_VERSION)
             st.session_state["_engine_key"] = engine_key
+            st.session_state["_engine_api_version"] = ENGINE_API_VERSION
         except ValueError as e:
             st.error(str(e))
             st.stop()
