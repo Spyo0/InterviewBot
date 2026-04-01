@@ -1,76 +1,123 @@
 # Je-Suis-Coach-AI
 
-Simulateur d'entretien technique **Finance de Marche (Quant / Structureur)**, 100% cloud et gratuit.
+Cloud-based technical interview simulator for **quantitative finance roles** such as quant analyst or structurer.
 
-## Stack
+The application generates interview questions from indexed PDF study material, evaluates answers, tracks progress, and runs entirely with cloud LLM providers.
 
-| Composant | Technologie |
+## Tech Stack
+
+| Component | Technology |
 |---|---|
-| Interface | Streamlit (dark theme) |
+| UI | Streamlit |
 | LLM | Groq Cloud / HuggingFace Inference |
-| Embeddings | HuggingFace Inference API (0 RAM locale) |
-| RAG | LangChain + ChromaDB |
-| Base de donnees | SQLite |
-| Graphiques | Plotly |
+| Embeddings | HuggingFace Inference API |
+| Retrieval | LangChain + ChromaDB |
+| Database | SQLite |
+| Charts | Plotly |
 
-## Installation
+## Quick Start
+
+### 1. Clone the repository
 
 ```bash
-# 1. Cloner le projet
-git clone https://github.com/Spyo0/InterviewBot.git && cd InterviewBot
+git clone https://github.com/Spyo0/InterviewBot.git
+cd InterviewBot
+```
 
-# 2. Installer les dependances
+### 2. Create a virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+On Windows:
+
+```bash
+.venv\Scripts\activate
+```
+
+### 3. Install dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-# 3. Configurer
-cp .env.example .env
-# Ajouter votre cle API Groq ou HuggingFace dans .env
+### 4. Create a `.env` file
 
-# 4. Lancer
+Create a `.env` file at the project root and add your provider credentials.
+
+Minimal example:
+
+```env
+LLM_PROVIDER=groq
+GROQ_API_KEY=your_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
+
+HF_API_TOKEN=your_token_here
+HF_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+VALIDATION_THRESHOLD=0.70
+MAX_PDFS=5
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+```
+
+You only need the credentials for the provider you actually use.
+
+### 5. Run the app
+
+```bash
 streamlit run app.py
 ```
 
-## Providers LLM
+## LLM Providers
 
-Le moteur tourne entierement en cloud — aucune installation locale de modele requise.
+The application runs fully in the cloud. No local model installation is required.
 
-| Provider | Modeles | Cle requise |
+| Provider | Models | Required credential |
 |---|---|---|
-| **Groq** (recommande) | Llama 3.3 70B, Llama 3.1 8B, Mixtral 8x7B | [console.groq.com](https://console.groq.com) |
+| **Groq** | Llama 3.3 70B, Llama 3.1 8B, Mixtral 8x7B | [console.groq.com](https://console.groq.com) |
 | **HuggingFace** | Mistral 7B, Llama 3 8B | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
 
-## Fonctionnalites
+## Features
 
-### Mode Entretien
-- Choix du theme
-- Choix de la difficulte : Auto, Fondamental, Intermediaire, Eleve
-- Selection automatique des chapitres PDF les plus pertinents pour ce theme
-- Timer de stress configurable (Off / 1 / 2 / 3 / 5 min) avec compte a rebours JS en temps reel
-- Difficulte progressive : les questions s'adaptent au score moyen de la session
-- Feedback immediat avec score, correction et temps de reponse
-- Rendu LaTeX natif pour toutes les formules mathematiques
+### Interview Mode
 
-### Mode Examen
-- 10 questions d'affilee sans feedback intermediaire
-- Correction detaillee revelee uniquement a la fin
-- Score global, nombre de questions validees, temps moyen
+- Choose a topic.
+- Choose a difficulty level: `Auto`, `Fundamental`, `Intermediate`, or `Advanced`.
+- Automatically retrieve the most relevant PDF chapters for the selected topic.
+- Use a configurable stress timer: `Off`, `1 min`, `2 min`, `3 min`, or `5 min`.
+- Adapt difficulty progressively when `Auto` mode is enabled.
+- Get immediate scoring, feedback, correction, and response time.
+- Render mathematical expressions with native LaTeX support.
+
+### Exam Mode
+
+- Run a 10-question exam session.
+- Hide feedback until the end of the exam.
+- Show a full correction summary at the end.
+- Track average score, validated answers, and average response time.
 
 ### Dashboard
-- Matrice de maitrise par theme (Non aborde / En cours / Maitrise)
-- Graphique d'evolution des temps de reponse
-- Historique complet des sessions
 
-### Gestion PDF
-- Import de supports PDF (max 5)
-- Decoupe automatique par chapitre
-- Indexation vectorielle pour le RAG
-- Utilisation automatique des chapitres pertinents selon le theme choisi
-- Affichage automatique d'un support visuel de la page source seulement quand la question s'appuie sur une figure ou un schema
+- View a topic mastery matrix.
+- Track response time trends over time.
+- Review recent answer history.
 
-## Configuration (.env)
+### PDF Support
+
+- Upload up to 5 PDF files.
+- Split PDFs automatically by chapters and pages.
+- Index the content in ChromaDB for retrieval.
+- Use the most relevant indexed chapters automatically based on the selected topic.
+- Display a visual extract from the source page only when the question actually depends on a figure, chart, diagram, or similar visual support.
+
+## Environment Variables
 
 ```env
-# Provider : "groq" ou "huggingface"
+# Provider selection
 LLM_PROVIDER=groq
 
 # Groq
@@ -81,7 +128,7 @@ GROQ_MODEL=llama-3.3-70b-versatile
 HF_API_TOKEN=your_token_here
 HF_MODEL=mistralai/Mistral-7B-Instruct-v0.3
 
-# RAG & Embeddings
+# Retrieval and embeddings
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 VALIDATION_THRESHOLD=0.70
 MAX_PDFS=5
@@ -89,27 +136,30 @@ CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
 ```
 
-## Themes couverts
+## Covered Topics
 
-- Calcul stochastique (Ito, Brownien)
-- Probabilites
-- Pricing de produits derives (Black-Scholes, Grecques)
-- Volatilite implicite
+- Stochastic calculus
+- Probabilities
+- Derivatives pricing
+- Black-Scholes
+- Greeks
+- Implied volatility
 - Monte Carlo
-- Brainteasers logiques
-- Calcul mental / Approximations
+- Logical brainteasers
+- Mental math and approximations
 
-## Architecture
+## Project Structure
 
+```text
+app.py          # Streamlit interface (Interview, Exam, PDF, Dashboard)
+engine.py       # RAG pipeline, LLM providers, question generation, evaluation
+database.py     # SQLite persistence for sessions, scores, and mastery
+processor.py    # PDF parsing and page/chapter extraction
+data/           # PDF storage, ChromaDB data, SQLite database
 ```
-app.py          # Interface Streamlit (Entretien, Examen, PDF, Dashboard)
-engine.py       # Logique RAG + providers cloud + difficulte progressive
-database.py     # Gestion SQLite (scores, sessions, maitrise)
-processor.py    # Parsing des PDF (PyMuPDF)
-data/           # Stockage PDF + ChromaDB + SQLite
-```
 
-## Prerequis
+## Requirements
 
 - Python 3.11+
-- Une cle API Groq (gratuite) ou un token HuggingFace
+- A Groq API key or a HuggingFace API token
+
