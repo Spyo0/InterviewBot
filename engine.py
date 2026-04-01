@@ -1,6 +1,7 @@
 """Logique RAG : LangChain + ChromaDB + providers cloud (Groq / HuggingFace)."""
 
 import os
+import re
 from typing import Optional
 from dotenv import load_dotenv
 import chromadb
@@ -46,6 +47,17 @@ VISUAL_KEYWORDS = (
     "visuel",
     "tableau",
 )
+INLINE_SOURCE_PATTERNS = (
+    "source :",
+    "source:",
+    "référence :",
+    "référence:",
+    "reference :",
+    "reference:",
+    "réponse attendue :",
+    "réponse attendue:",
+    "expected answer:",
+)
 
 
 def build_llm(provider: str, model_name: str):
@@ -81,8 +93,11 @@ Règles :
 - Adapte la difficulté au niveau montré par les réponses précédentes.
 - Appuie-toi en priorité sur le contexte issu des PDF indexés quand il est fourni.
 - Si la page source contient une figure, un schéma ou un graphe utile, tu peux t'appuyer dessus et y faire explicitement référence.
+- Ne donne JAMAIS la réponse, la définition complète, une correction, ni une "réponse attendue" dans l'énoncé.
+- N'inclus JAMAIS de ligne "Source", "Référence" ou une page/livre dans le texte de la question : l'interface affiche déjà cette information séparément.
+- Si le contexte contient une définition explicite, transforme-la en question de compréhension, de reformulation ou d'application sans recopier cette définition.
 - Pour les calculs mentaux, demande des approximations (ex: √0.8, log(1.05)).
-- Cite toujours la source (livre/page) quand tu t'appuies sur le contexte fourni.
+- Appuie-toi toujours sur une source identifiable du contexte fourni, sans l'écrire dans le texte de la question.
 - Évalue les réponses avec rigueur mais bienveillance.
 - Formate TOUTES les équations et expressions mathématiques en LaTeX inline ($...$) ou display ($$...$$).
   Exemples : $dS_t = \\mu S_t dt + \\sigma S_t dW_t$, $\\mathbb{{E}}[X]$, $\\frac{{\\partial V}}{{\\partial t}}$.
@@ -312,6 +327,65 @@ class JeSuisCoachEngine:
             "image_caption": "",
         }
 
+    @staticmethod
+    def _normalize_question(question: str) -> str:
+        """Nettoie les sections interdites dans l'énoncé généré."""
+        cleaned_lines = []
+        for line in question.splitlines():
+            stripped_line = line.strip()
+            stripped_lower = stripped_line.lower()
+            if any(stripped_lower.startswith(pattern) for pattern in INLINE_SOURCE_PATTERNS):
+                continue
+            cleaned_lines.append(line)
+
+        cleaned = "\n".join(cleaned_lines).strip()
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        cleaned = re.sub(
+            r"(?is)\b(réponse attendue|expected answer)\b.*$",
+            "",
+            cleaned,
+        ).strip()
+        return cleaned
+
+    @staticmethod
+    def _question_has_answer_leak(question: str) -> bool:
+        normalized_question = question.lower()
+        if any(pattern in normalized_question for pattern in INLINE_SOURCE_PATTERNS):
+            return True
+
+        leak_patterns = (
+            r"(?i)\bla [a-zà-ÿ0-9_()Δ$\\ ]+ est\b",
+            r"(?i)\ble [a-zà-ÿ0-9_()Δ$\\ ]+ est\b",
+            r"(?i)\bc'?est[- ]à[- ]dire\b",
+        )
+        return any(re.search(pattern, question) for pattern in leak_patterns)
+
+    def _repair_question(self, topic: str, question: str) -> str:
+        """Réécrit un énoncé qui contient déjà la réponse ou une source inline."""
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_PROMPT),
+            ("human", """Réécris la question d'entretien suivante.
+
+Contraintes :
+- Garde une seule question.
+- Ne donne jamais la réponse.
+- N'écris jamais "Réponse attendue", "Source" ou "Référence".
+- Ne recopie pas la définition du cours : transforme-la en vraie question d'entretien.
+- Ne mentionne ni livre, ni chapitre, ni page dans le texte.
+
+Thème : {topic}
+Question à réécrire :
+{question}"""),
+        ])
+
+        chain = prompt | self.llm | StrOutputParser()
+        repaired_question = chain.invoke({
+            "context": "",
+            "topic": topic,
+            "question": question,
+        })
+        return self._normalize_question(repaired_question)
+
     def generate_question(
         self,
         topic: str,
@@ -345,16 +419,22 @@ Appuie-toi prioritairement sur les extraits PDF fournis ci-dessus.
 Choisis l'angle le plus pertinent parmi les chapitres remontés pour ce thème.
 {difficulty_block}
 {history_block}
-Pose une seule question technique précise en citant la source utilisée."""),
+Pose une seule question technique précise, sans donner la réponse ni écrire la source dans le texte."""),
         ])
 
         chain = prompt | self.llm | StrOutputParser()
-        question = chain.invoke({
+        raw_question = chain.invoke({
             "context": context_block,
             "topic": topic,
             "difficulty_block": difficulty_block,
             "history_block": f"\nQuestions déjà posées dans cette session :\n{history}" if history else "",
         })
+        question = self._normalize_question(raw_question)
+
+        if self._question_has_answer_leak(question):
+            repaired_question = self._repair_question(topic=topic, question=question)
+            if repaired_question:
+                question = repaired_question
 
         source_refs = [match["source_ref"] for match in selected_matches]
         visual_support = self._resolve_visual_support(selected_matches, question)
