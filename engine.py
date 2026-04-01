@@ -3,7 +3,7 @@
 import os
 from dotenv import load_dotenv
 import chromadb
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -13,7 +13,7 @@ load_dotenv()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CHROMA_DIR = os.path.join(DATA_DIR, "chromadb")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 VALIDATION_THRESHOLD = float(os.getenv("VALIDATION_THRESHOLD", "0.70"))
 
 # Providers cloud
@@ -88,9 +88,10 @@ class JeSuisCoachEngine:
         self.provider = provider
         self.model_name = model_name
         self.llm = build_llm(provider, model_name)
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            model_kwargs={"device": "cpu"},
+        hf_token = os.getenv("HF_API_TOKEN", "")
+        self.embeddings = HuggingFaceEndpointEmbeddings(
+            model=EMBEDDING_MODEL,
+            huggingfacehub_api_token=hf_token if hf_token else None,
         )
         self.chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
         self._ensure_collection()
