@@ -1,13 +1,13 @@
 # Je-Suis-Coach-AI
 
-Simulateur d'entretien technique **Finance de Marche (Quant / Structureur)**, 100% local et gratuit.
+Simulateur d'entretien technique **Finance de Marche (Quant / Structureur)**, 100% cloud et gratuit.
 
 ## Stack
 
 | Composant | Technologie |
 |---|---|
 | Interface | Streamlit |
-| LLM | Ollama (Llama3 / Mistral) |
+| LLM | Groq Cloud / HuggingFace Inference |
 | RAG | LangChain + ChromaDB |
 | Embeddings | HuggingFace (all-MiniLM-L6-v2) |
 | Base de donnees | SQLite |
@@ -17,21 +17,48 @@ Simulateur d'entretien technique **Finance de Marche (Quant / Structureur)**, 10
 
 ```bash
 # 1. Cloner le projet
-git clone <repo-url> && cd BotEntretien
+git clone https://github.com/Spyo0/InterviewBot.git && cd InterviewBot
 
 # 2. Installer les dependances
 pip install -r requirements.txt
 
-# 3. Installer et lancer Ollama
-# https://ollama.com
-ollama pull llama3
-
-# 4. Configurer (optionnel)
+# 3. Configurer
 cp .env.example .env
-# Editer .env selon vos besoins
+# Ajouter votre cle API Groq ou HuggingFace dans .env
 
-# 5. Lancer
+# 4. Lancer
 streamlit run app.py
+```
+
+## Providers LLM
+
+Le moteur tourne entierement en cloud — aucune installation locale de modele requise.
+
+| Provider | Modeles | Cle requise |
+|---|---|---|
+| **Groq** (recommande) | Llama 3.3 70B, Llama 3.1 8B, Mixtral 8x7B | [console.groq.com](https://console.groq.com) |
+| **HuggingFace** | Mistral 7B, Llama 3 8B | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
+
+## Configuration (.env)
+
+```env
+# Provider : "groq" ou "huggingface"
+LLM_PROVIDER=groq
+
+# Groq
+GROQ_API_KEY=your_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# HuggingFace
+HF_API_TOKEN=your_token_here
+HF_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+
+# RAG
+VALIDATION_THRESHOLD=0.70
+MAX_PDFS=5
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+EMBEDDING_MODEL=all-MiniLM-L6-v2
 ```
 
 ## Utilisation
@@ -57,23 +84,11 @@ Onglet **Dashboard** > matrice de maitrise, temps de reponse, historique.
 - Brainteasers logiques
 - Calcul mental / Approximations
 
-## Configuration (.env)
-
-```env
-OLLAMA_MODEL=llama3           # Modele par defaut
-OLLAMA_BASE_URL=http://localhost:11434
-VALIDATION_THRESHOLD=0.70     # Seuil de validation
-MAX_PDFS=5
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=200
-EMBEDDING_MODEL=all-MiniLM-L6-v2
-```
-
 ## Architecture
 
 ```
 app.py          # Interface Streamlit
-engine.py       # Logique RAG (Ollama + LangChain + ChromaDB)
+engine.py       # Logique RAG (LangChain + ChromaDB + providers cloud)
 database.py     # Gestion SQLite
 processor.py    # Parsing des PDF
 data/           # Stockage PDF + ChromaDB + SQLite
@@ -82,5 +97,4 @@ data/           # Stockage PDF + ChromaDB + SQLite
 ## Prerequis
 
 - Python 3.11+
-- Ollama installe et actif
-- Apple Silicon recommande (M1/M2/M3/M4)
+- Une cle API Groq (gratuite) ou un token HuggingFace
