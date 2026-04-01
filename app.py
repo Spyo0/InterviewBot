@@ -388,7 +388,7 @@ TOPICS = [
 ]
 
 DIFFICULTY_OPTIONS = ["Auto", "Fondamental", "Intermédiaire", "Élevé"]
-ENGINE_API_VERSION = "2026-04-01-visual-support-v1"
+ENGINE_API_VERSION = "2026-04-01-context-display-v1"
 
 
 # --- Init Engine ---
@@ -610,7 +610,7 @@ with tab_interview:
             st.session_state["current_question_topic"] = topic
             st.session_state["current_question_difficulty"] = question_payload["difficulty"]
             st.session_state["current_question_context"] = question_payload["context"]
-            st.session_state["current_question_source"] = question_payload["source_ref"]
+            st.session_state["current_question_source"] = question_payload.get("display_source_ref", "")
             st.session_state["current_question_image_path"] = question_payload.get("image_path")
             st.session_state["current_question_image_caption"] = question_payload.get("image_caption", "")
             st.session_state["question_start_time"] = time.time()
@@ -832,8 +832,8 @@ with tab_exam:
         current_question_meta = st.session_state["exam_question_meta"][idx]
         render_markdown_panel("Question", current_q)
         st.caption(f"Difficulte de la question : {current_question_meta.get('difficulty', 'Intermédiaire')}")
-        if current_question_meta.get("source_ref"):
-            st.caption(f"Source PDF utilisee : {current_question_meta['source_ref']}")
+        if current_question_meta.get("display_source_ref"):
+            st.caption(f"Source PDF utilisee : {current_question_meta['display_source_ref']}")
         if current_question_meta.get("image_path"):
             st.image(
                 current_question_meta["image_path"],
@@ -903,7 +903,7 @@ with tab_exam:
                                 evaluation["score"],
                                 elapsed,
                                 evaluation["feedback"],
-                                source_ref=meta.get("source_ref", ""),
+                                source_ref=meta.get("display_source_ref", ""),
                             )
                             update_mastery(st.session_state["exam_topic"], evaluation["score"], elapsed)
                             results.append({
@@ -911,7 +911,7 @@ with tab_exam:
                                 "answer": a["answer"],
                                 "time": elapsed,
                                 "difficulty": meta.get("difficulty", "Intermédiaire"),
-                                "source_ref": meta.get("source_ref", ""),
+                                "source_ref": meta.get("display_source_ref", ""),
                                 "image_path": meta.get("image_path"),
                                 "image_caption": meta.get("image_caption", ""),
                                 **evaluation,

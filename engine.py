@@ -47,6 +47,22 @@ VISUAL_KEYWORDS = (
     "visuel",
     "tableau",
 )
+CONTEXT_DISPLAY_KEYWORDS = (
+    "extrait",
+    "figure",
+    "schéma",
+    "schema",
+    "graphe",
+    "graphique",
+    "diagramme",
+    "tableau",
+    "illustr",
+    "comme montré",
+    "comme illustre",
+    "comme illustré",
+    "comme vu",
+    "selon le schéma",
+)
 INLINE_SOURCE_PATTERNS = (
     "source :",
     "source:",
@@ -96,6 +112,7 @@ Règles :
 - Ne donne JAMAIS la réponse, la définition complète, une correction, ni une "réponse attendue" dans l'énoncé.
 - N'inclus JAMAIS de ligne "Source", "Référence" ou une page/livre dans le texte de la question : l'interface affiche déjà cette information séparément.
 - Si le contexte contient une définition explicite, transforme-la en question de compréhension, de reformulation ou d'application sans recopier cette définition.
+- N'évoque pas explicitement un extrait de livre ou un support PDF si la question peut se suffire à elle-même.
 - Pour les calculs mentaux, demande des approximations (ex: √0.8, log(1.05)).
 - Appuie-toi toujours sur une source identifiable du contexte fourni, sans l'écrire dans le texte de la question.
 - Évalue les réponses avec rigueur mais bienveillance.
@@ -294,9 +311,21 @@ class JeSuisCoachEngine:
         question_lower = question.lower()
         return any(keyword in question_lower for keyword in VISUAL_KEYWORDS)
 
+    @staticmethod
+    def _question_needs_context_display(question: str) -> bool:
+        question_lower = question.lower()
+        return any(keyword in question_lower for keyword in CONTEXT_DISPLAY_KEYWORDS)
+
     def _resolve_visual_support(self, matches: list[dict], question: str) -> dict:
         """Retourne une preview de page quand un support visuel est disponible ou nécessaire."""
         question_needs_visual = self._question_needs_visual(question)
+        if not question_needs_visual:
+            return {
+                "image_path": None,
+                "image_page": None,
+                "image_has_visuals": False,
+                "image_caption": "",
+            }
 
         for match in matches:
             metadata = match["metadata"]
@@ -437,16 +466,19 @@ Pose une seule question technique précise, sans donner la réponse ni écrire l
                 question = repaired_question
 
         source_refs = [match["source_ref"] for match in selected_matches]
+        should_display_context = self._question_needs_context_display(question)
         visual_support = self._resolve_visual_support(selected_matches, question)
         return {
             "question": question,
             "context": context,
             "source_ref": source_refs[0],
+            "display_source_ref": source_refs[0] if should_display_context else "",
             "source_refs": source_refs,
             "chapter": primary_match["metadata"].get("chapter", ""),
             "source": primary_match["metadata"].get("source", ""),
             "page": primary_match["metadata"].get("page", primary_match["metadata"].get("start_page")),
             "difficulty": resolved_difficulty,
+            "show_context_support": should_display_context,
             **visual_support,
         }
 
