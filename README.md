@@ -6,10 +6,10 @@ Simulateur d'entretien technique **Finance de Marche (Quant / Structureur)**, 10
 
 | Composant | Technologie |
 |---|---|
-| Interface | Streamlit |
+| Interface | Streamlit (dark theme) |
 | LLM | Groq Cloud / HuggingFace Inference |
+| Embeddings | HuggingFace Inference API (0 RAM locale) |
 | RAG | LangChain + ChromaDB |
-| Embeddings | HuggingFace (all-MiniLM-L6-v2) |
 | Base de donnees | SQLite |
 | Graphiques | Plotly |
 
@@ -39,6 +39,30 @@ Le moteur tourne entierement en cloud — aucune installation locale de modele r
 | **Groq** (recommande) | Llama 3.3 70B, Llama 3.1 8B, Mixtral 8x7B | [console.groq.com](https://console.groq.com) |
 | **HuggingFace** | Mistral 7B, Llama 3 8B | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
 
+## Fonctionnalites
+
+### Mode Entretien
+- Choix du theme et du chapitre
+- Timer de stress configurable (Off / 1 / 2 / 3 / 5 min) avec compte a rebours JS en temps reel
+- Difficulte progressive : les questions s'adaptent au score moyen de la session
+- Feedback immediat avec score, correction et temps de reponse
+- Rendu LaTeX natif pour toutes les formules mathematiques
+
+### Mode Examen
+- 10 questions d'affilee sans feedback intermediaire
+- Correction detaillee revelee uniquement a la fin
+- Score global, nombre de questions validees, temps moyen
+
+### Dashboard
+- Matrice de maitrise par theme (Non aborde / En cours / Maitrise)
+- Graphique d'evolution des temps de reponse
+- Historique complet des sessions
+
+### Gestion PDF
+- Import de supports PDF (max 5)
+- Decoupe automatique par chapitre
+- Indexation vectorielle pour le RAG
+
 ## Configuration (.env)
 
 ```env
@@ -53,26 +77,13 @@ GROQ_MODEL=llama-3.3-70b-versatile
 HF_API_TOKEN=your_token_here
 HF_MODEL=mistralai/Mistral-7B-Instruct-v0.3
 
-# RAG
+# RAG & Embeddings
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 VALIDATION_THRESHOLD=0.70
 MAX_PDFS=5
 CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
-EMBEDDING_MODEL=all-MiniLM-L6-v2
 ```
-
-## Utilisation
-
-### 1. Importer des PDF
-Onglet **PDF** > deposez vos supports (max 5) > cliquez **Indexer**.
-
-### 2. Simuler un entretien
-Onglet **Entretien** > choisissez un theme > **Nouvelle question** > repondez > **Soumettre**.
-
-Seuil de validation : **70%** (configurable dans `.env`).
-
-### 3. Suivre sa progression
-Onglet **Dashboard** > matrice de maitrise, temps de reponse, historique.
 
 ## Themes couverts
 
@@ -87,10 +98,10 @@ Onglet **Dashboard** > matrice de maitrise, temps de reponse, historique.
 ## Architecture
 
 ```
-app.py          # Interface Streamlit
-engine.py       # Logique RAG (LangChain + ChromaDB + providers cloud)
-database.py     # Gestion SQLite
-processor.py    # Parsing des PDF
+app.py          # Interface Streamlit (Entretien, Examen, PDF, Dashboard)
+engine.py       # Logique RAG + providers cloud + difficulte progressive
+database.py     # Gestion SQLite (scores, sessions, maitrise)
+processor.py    # Parsing des PDF (PyMuPDF)
 data/           # Stockage PDF + ChromaDB + SQLite
 ```
 
