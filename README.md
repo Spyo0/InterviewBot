@@ -45,23 +45,10 @@ pip install -r requirements.txt
 
 ### 4. Create a `.env` file
 
-Create a `.env` file at the project root and add your provider credentials.
+Copy the example file and add your provider credentials:
 
-Minimal example:
-
-```env
-LLM_PROVIDER=groq
-GROQ_API_KEY=your_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
-
-HF_API_TOKEN=your_token_here
-HF_MODEL=mistralai/Mistral-7B-Instruct-v0.3
-
-EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-VALIDATION_THRESHOLD=0.70
-MAX_PDFS=5
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=200
+```bash
+cp .env.example .env
 ```
 
 You only need the credentials for the provider you actually use.
@@ -70,6 +57,12 @@ You only need the credentials for the provider you actually use.
 
 ```bash
 streamlit run app.py
+```
+
+### 6. Run the test suite
+
+```bash
+python -m unittest discover -s tests
 ```
 
 ## LLM Providers
@@ -131,9 +124,12 @@ HF_MODEL=mistralai/Mistral-7B-Instruct-v0.3
 # Retrieval and embeddings
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 VALIDATION_THRESHOLD=0.70
+MAX_GENERATION_ATTEMPTS=3
+SOURCE_SIMILARITY_LIMIT=0.82
 MAX_PDFS=5
 CHUNK_SIZE=1000
 CHUNK_OVERLAP=200
+TOC_MAX_LEVEL=2
 ```
 
 ## Covered Topics
@@ -160,6 +156,5 @@ data/           # PDF storage, ChromaDB data, SQLite database
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12 recommended (`.python-version` is provided)
 - A Groq API key or a HuggingFace API token
-
