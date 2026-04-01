@@ -187,14 +187,14 @@ Donne :
 6. La source la plus utile du contexte si elle est identifiable
 
 Retourne EXCLUSIVEMENT un objet JSON valide au format suivant :
-{
+{{
   "score": 0.0,
   "feedback": "feedback détaillé en français",
   "correction": "correction complète en LaTeX si nécessaire, sinon 'Correct'",
   "strengths": ["point fort 1", "point fort 2"],
   "mistakes": ["erreur 1", "erreur 2"],
   "source_used": "source utile ou chaîne vide"
-}"""
+}}"""
 
 
 class JeSuisCoachEngine:

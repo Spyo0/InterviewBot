@@ -2,7 +2,9 @@
 
 import unittest
 
-from engine import JeSuisCoachEngine
+from langchain_core.prompts import ChatPromptTemplate
+
+from engine import EVAL_PROMPT, JeSuisCoachEngine
 
 
 class EngineTests(unittest.TestCase):
@@ -43,6 +45,21 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(result["feedback"], "incomplet")
         self.assertEqual(result["correction"], "$$d_1$$")
         self.assertEqual(result["source_used"], "ref")
+
+    def test_eval_prompt_accepts_only_expected_template_variables(self):
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "Tu es un évaluateur rigoureux d'entretiens Quant."),
+            ("human", EVAL_PROMPT),
+        ])
+
+        formatted_messages = prompt.format_messages(
+            question="Que vaut le delta ?",
+            answer="C'est une sensibilité.",
+            context="Delta et sensibilités.",
+        )
+
+        self.assertEqual(len(formatted_messages), 2)
+        self.assertIn('"score"', formatted_messages[1].content)
 
     def test_select_question_type_avoids_mental_math_outside_dedicated_topic(self):
         question_type = self.engine._select_question_type(
