@@ -65,6 +65,7 @@ Le moteur tourne entierement en cloud — aucune installation locale de modele r
 - Decoupe automatique par chapitre
 - Indexation vectorielle pour le RAG
 - Utilisation automatique des chapitres pertinents selon le theme choisi
+- Affichage automatique d'un support visuel de la page source quand la question s'appuie sur une figure ou un schema
 
 ## Configuration (.env)
 

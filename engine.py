@@ -8,7 +8,7 @@ from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-from processor import process_pdf, list_pdfs
+from processor import get_page_preview, process_pdf, list_pdfs
 
 load_dotenv()
 
@@ -34,6 +34,18 @@ DIFFICULTY_INSTRUCTIONS = {
     "Intermédiaire": "\nNiveau de difficulté : INTERMÉDIAIRE. Pose une question standard d'entretien.",
     "Élevé": "\nNiveau de difficulté : ÉLEVÉ. Pose une question avancée, piège ou multi-étapes.",
 }
+VISUAL_KEYWORDS = (
+    "figure",
+    "schéma",
+    "schema",
+    "graphique",
+    "graph",
+    "courbe",
+    "diagramme",
+    "illustr",
+    "visuel",
+    "tableau",
+)
 
 
 def build_llm(provider: str, model_name: str):
@@ -68,6 +80,7 @@ Règles :
 - Pose UNE question à la fois, claire et précise.
 - Adapte la difficulté au niveau montré par les réponses précédentes.
 - Appuie-toi en priorité sur le contexte issu des PDF indexés quand il est fourni.
+- Si la page source contient une figure, un schéma ou un graphe utile, tu peux t'appuyer dessus et y faire explicitement référence.
 - Pour les calculs mentaux, demande des approximations (ex: √0.8, log(1.05)).
 - Cite toujours la source (livre/page) quand tu t'appuies sur le contexte fourni.
 - Évalue les réponses avec rigueur mais bienveillance.
@@ -120,7 +133,7 @@ class JeSuisCoachEngine:
         )
 
     def index_pdfs(self) -> int:
-        """Indexe tous les PDF du dossier data/. Retourne le nombre de chunks indexés."""
+        """Ré-indexe tous les PDF du dossier data/. Retourne le nombre de chunks indexés."""
         pdfs = list_pdfs()
         total = 0
 
@@ -129,34 +142,26 @@ class JeSuisCoachEngine:
             if not docs:
                 continue
 
-            ids = [f"{pdf_name}_{i}" for i in range(len(docs))]
-            texts = [d["text"] for d in docs]
-            metadatas = [d["metadata"] for d in docs]
-
-            # Vérifier les IDs existants pour éviter les doublons
-            existing = set()
             try:
-                result = self.collection.get(ids=ids)
-                existing = set(result["ids"]) if result["ids"] else set()
+                self.collection.delete(where={"source": pdf_name})
             except Exception:
                 pass
 
-            new_ids = [id_ for id_ in ids if id_ not in existing]
-            if not new_ids:
-                continue
+            ids = [
+                f"{pdf_name}_p{doc['metadata'].get('page', doc['metadata'].get('start_page', 0))}_c{doc['metadata']['chunk_index']}"
+                for doc in docs
+            ]
+            texts = [d["text"] for d in docs]
+            metadatas = [d["metadata"] for d in docs]
 
-            new_indices = [ids.index(id_) for id_ in new_ids]
-            new_texts = [texts[i] for i in new_indices]
-            new_metadatas = [metadatas[i] for i in new_indices]
-
-            embeddings = self.embeddings.embed_documents(new_texts)
+            embeddings = self.embeddings.embed_documents(texts)
             self.collection.add(
-                ids=new_ids,
-                documents=new_texts,
-                metadatas=new_metadatas,
+                ids=ids,
+                documents=texts,
+                metadatas=metadatas,
                 embeddings=embeddings,
             )
-            total += len(new_ids)
+            total += len(ids)
 
         return total
 
@@ -164,8 +169,8 @@ class JeSuisCoachEngine:
     def _format_source_ref(metadata: dict) -> str:
         source = metadata.get("source", "?")
         chapter = metadata.get("chapter", "?")
-        start_page = metadata.get("start_page", "?")
-        return f"{source} - {chapter} - p.{start_page}"
+        page = metadata.get("page", metadata.get("start_page", "?"))
+        return f"{source} - {chapter} - p.{page}"
 
     def _query_context_matches(
         self,
@@ -209,6 +214,8 @@ class JeSuisCoachEngine:
         for match in matches:
             meta = match["metadata"]
             ref = f"[{self._format_source_ref(meta)}]"
+            if meta.get("has_visuals"):
+                ref += " [Support visuel disponible]"
             context_parts.append(f"{ref}\n{match['text']}")
 
         return "\n\n---\n\n".join(context_parts)
@@ -267,6 +274,44 @@ class JeSuisCoachEngine:
 
         return selected_matches
 
+    @staticmethod
+    def _question_needs_visual(question: str) -> bool:
+        question_lower = question.lower()
+        return any(keyword in question_lower for keyword in VISUAL_KEYWORDS)
+
+    def _resolve_visual_support(self, matches: list[dict], question: str) -> dict:
+        """Retourne une preview de page quand un support visuel est disponible ou nécessaire."""
+        question_needs_visual = self._question_needs_visual(question)
+
+        for match in matches:
+            metadata = match["metadata"]
+            page_number = metadata.get("page") or metadata.get("start_page")
+            source = metadata.get("source", "")
+            if not source or not page_number:
+                continue
+
+            preview = get_page_preview(
+                pdf_name=source,
+                page_number=page_number,
+                only_if_visual=not question_needs_visual,
+            )
+            if not preview:
+                continue
+
+            return {
+                "image_path": preview["path"],
+                "image_page": preview["page"],
+                "image_has_visuals": preview["has_visuals"],
+                "image_caption": f"Support visuel extrait de {source} - page {preview['page']}",
+            }
+
+        return {
+            "image_path": None,
+            "image_page": None,
+            "image_has_visuals": False,
+            "image_caption": "",
+        }
+
     def generate_question(
         self,
         topic: str,
@@ -312,6 +357,7 @@ Pose une seule question technique précise en citant la source utilisée."""),
         })
 
         source_refs = [match["source_ref"] for match in selected_matches]
+        visual_support = self._resolve_visual_support(selected_matches, question)
         return {
             "question": question,
             "context": context,
@@ -319,7 +365,9 @@ Pose une seule question technique précise en citant la source utilisée."""),
             "source_refs": source_refs,
             "chapter": primary_match["metadata"].get("chapter", ""),
             "source": primary_match["metadata"].get("source", ""),
+            "page": primary_match["metadata"].get("page", primary_match["metadata"].get("start_page")),
             "difficulty": resolved_difficulty,
+            **visual_support,
         }
 
     def evaluate_answer(self, question: str, answer: str, topic: str, context: str = "") -> dict:

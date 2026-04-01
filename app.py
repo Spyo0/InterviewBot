@@ -388,7 +388,7 @@ TOPICS = [
 ]
 
 DIFFICULTY_OPTIONS = ["Auto", "Fondamental", "Intermédiaire", "Élevé"]
-ENGINE_API_VERSION = "2026-04-01-difficulty-v1"
+ENGINE_API_VERSION = "2026-04-01-visual-support-v1"
 
 
 # --- Init Engine ---
@@ -417,6 +417,8 @@ def init_session_state():
         "current_question_difficulty": "Auto",
         "current_question_context": "",
         "current_question_source": "",
+        "current_question_image_path": None,
+        "current_question_image_caption": "",
         "question_start_time": None,
         "session_history": [],
         "questions_asked": [],
@@ -609,6 +611,8 @@ with tab_interview:
             st.session_state["current_question_difficulty"] = question_payload["difficulty"]
             st.session_state["current_question_context"] = question_payload["context"]
             st.session_state["current_question_source"] = question_payload["source_ref"]
+            st.session_state["current_question_image_path"] = question_payload.get("image_path")
+            st.session_state["current_question_image_caption"] = question_payload.get("image_caption", "")
             st.session_state["question_start_time"] = time.time()
             st.session_state["questions_asked"].append(question_payload["question"])
             st.session_state["question_sources"].append(question_payload["source_ref"])
@@ -623,6 +627,12 @@ with tab_interview:
         st.caption(f"Difficulte de la question : {st.session_state['current_question_difficulty']}")
         if st.session_state["current_question_source"]:
             st.caption(f"Source PDF utilisee : {st.session_state['current_question_source']}")
+        if st.session_state["current_question_image_path"]:
+            st.image(
+                st.session_state["current_question_image_path"],
+                caption=st.session_state["current_question_image_caption"] or "Support visuel du PDF",
+                width="stretch",
+            )
 
         answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
                               placeholder="Ecrivez votre reponse ici...")
@@ -697,6 +707,8 @@ with tab_interview:
                     "time": elapsed,
                     "difficulty": st.session_state["current_question_difficulty"],
                     "source_ref": st.session_state["current_question_source"],
+                    "image_path": st.session_state["current_question_image_path"],
+                    "image_caption": st.session_state["current_question_image_caption"],
                 })
 
     # Session history
@@ -717,6 +729,12 @@ with tab_interview:
                     st.caption(f"Difficulte : {item['difficulty']}")
                 if item.get("source_ref"):
                     st.caption(f"Source : {item['source_ref']}")
+                if item.get("image_path"):
+                    st.image(
+                        item["image_path"],
+                        caption=item.get("image_caption") or "Support visuel du PDF",
+                        width="stretch",
+                    )
 
     # Reset
     if st.session_state["session_id"] is not None:
@@ -728,6 +746,8 @@ with tab_interview:
             st.session_state["current_question_difficulty"] = "Auto"
             st.session_state["current_question_context"] = ""
             st.session_state["current_question_source"] = ""
+            st.session_state["current_question_image_path"] = None
+            st.session_state["current_question_image_caption"] = ""
             st.session_state["session_history"] = []
             st.session_state["questions_asked"] = []
             st.session_state["question_sources"] = []
@@ -814,6 +834,12 @@ with tab_exam:
         st.caption(f"Difficulte de la question : {current_question_meta.get('difficulty', 'Intermédiaire')}")
         if current_question_meta.get("source_ref"):
             st.caption(f"Source PDF utilisee : {current_question_meta['source_ref']}")
+        if current_question_meta.get("image_path"):
+            st.image(
+                current_question_meta["image_path"],
+                caption=current_question_meta.get("image_caption") or "Support visuel du PDF",
+                width="stretch",
+            )
 
         answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
                               placeholder="Ecrivez votre reponse...", key=f"exam_answer_{idx}")
@@ -886,6 +912,8 @@ with tab_exam:
                                 "time": elapsed,
                                 "difficulty": meta.get("difficulty", "Intermédiaire"),
                                 "source_ref": meta.get("source_ref", ""),
+                                "image_path": meta.get("image_path"),
+                                "image_caption": meta.get("image_caption", ""),
                                 **evaluation,
                             })
                     st.session_state["exam_results"] = results
@@ -940,6 +968,12 @@ with tab_exam:
                     st.markdown(f"**Difficulte :** {r['difficulty']}")
                 if r.get("source_ref"):
                     st.markdown(f"**Source :** {r['source_ref']}")
+                if r.get("image_path"):
+                    st.image(
+                        r["image_path"],
+                        caption=r.get("image_caption") or "Support visuel du PDF",
+                        width="stretch",
+                    )
                 st.markdown("**Reponse**")
                 st.markdown(r["answer"])
                 st.markdown("**Feedback**")
@@ -993,6 +1027,7 @@ with tab_pdf:
         st.info("Aucun PDF. Deposez vos fichiers ci-dessus.")
 
     st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+    st.caption("Après une mise à jour du moteur PDF, relancez l'indexation pour obtenir des références de page et des visuels plus précis.")
 
     if st.button("Indexer les PDF", type="primary", use_container_width=True):
         with st.spinner("Indexation en cours..."):
