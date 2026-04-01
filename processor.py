@@ -3,6 +3,7 @@
 import os
 import re
 import tempfile
+from typing import Optional
 from dotenv import load_dotenv
 import fitz  # PyMuPDF
 
@@ -13,6 +14,29 @@ MAX_PDFS = int(os.getenv("MAX_PDFS", "5"))
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
 PREVIEW_DIR = os.path.join(tempfile.gettempdir(), "botentretien_pdf_previews")
+TOC_MAX_LEVEL = int(os.getenv("TOC_MAX_LEVEL", "2"))
+EXCLUDED_TOC_TITLES = (
+    "cover",
+    "title page",
+    "table of contents",
+    "contents",
+    "copyright",
+    "dedication",
+    "preface",
+    "business snapshots",
+    "index",
+    "bibliography",
+    "references",
+    "acknowledg",
+    "about the author",
+    "further reading",
+    "appendix",
+)
+CHAPTER_TITLE_PATTERN = re.compile(
+    r"^((chapter|chapitre|part|partie)\s+(\d+|[ivxlc]+)\b|(\d+|[ivxlc]+)\b(?!\.))",
+    re.IGNORECASE,
+)
+SECTION_TITLE_PATTERN = re.compile(r"^\d+\.\d+")
 
 
 def list_pdfs() -> list[str]:
@@ -91,10 +115,167 @@ def extract_text_with_pages(pdf_path: str) -> list[dict]:
     return pages
 
 
-def detect_chapters(pages: list[dict]) -> list[dict]:
-    """Détecte les chapitres via des patterns courants et regroupe le texte."""
+def _sanitize_title(title: str, fallback: str = "Introduction") -> str:
+    """Nettoie un titre de chapitre pour produire une référence stable."""
+    cleaned = re.sub(r"\s+", " ", title).strip(" -:\t\r\n")
+    cleaned = cleaned.strip('"')
+    return cleaned[:120] if cleaned else fallback
+
+
+def _is_excluded_toc_title(title: str) -> bool:
+    normalized = title.lower()
+    return any(keyword in normalized for keyword in EXCLUDED_TOC_TITLES)
+
+
+def _extract_toc_entries(pdf_path: str) -> list[dict]:
+    """Extrait les entrées de table des matières exploitables depuis le PDF."""
+    doc = fitz.open(pdf_path)
+    try:
+        toc = doc.get_toc(simple=True)
+        if not toc:
+            return []
+
+        entries = []
+        for level, title, page_number in toc:
+            if not title or not isinstance(page_number, int):
+                continue
+            if page_number < 1 or page_number > len(doc):
+                continue
+
+            clean_title = _sanitize_title(title)
+            if _is_excluded_toc_title(clean_title):
+                continue
+
+            entries.append({
+                "level": int(level),
+                "title": clean_title,
+                "start_page": int(page_number),
+            })
+
+        if not entries:
+            return []
+
+        primary_level = _select_toc_level(entries)
+        selected_entries = [entry for entry in entries if entry["level"] == primary_level]
+
+        deduped_entries = []
+        seen_boundaries = set()
+        for entry in sorted(selected_entries, key=lambda item: (item["start_page"], item["level"], item["title"])):
+            dedupe_key = (entry["start_page"], entry["title"].lower())
+            if dedupe_key in seen_boundaries:
+                continue
+            seen_boundaries.add(dedupe_key)
+            deduped_entries.append(entry)
+
+        return deduped_entries
+    finally:
+        doc.close()
+
+
+def _select_toc_level(entries: list[dict]) -> int:
+    """Sélectionne le niveau de TOC le plus proche d'un vrai découpage chapitre."""
+    levels = sorted({entry["level"] for entry in entries if entry["level"] <= TOC_MAX_LEVEL})
+    if not levels:
+        return min(entry["level"] for entry in entries)
+
+    fallback_level: Optional[int] = None
+    for level in levels:
+        level_entries = [entry for entry in entries if entry["level"] == level]
+        if len(level_entries) < 3:
+            continue
+
+        if fallback_level is None:
+            fallback_level = level
+
+        titles = [entry["title"] for entry in level_entries]
+        chapter_like_ratio = sum(
+            1 for title in titles if CHAPTER_TITLE_PATTERN.match(title)
+        ) / len(titles)
+        section_like_ratio = sum(
+            1 for title in titles if SECTION_TITLE_PATTERN.match(title)
+        ) / len(titles)
+
+        if section_like_ratio < 0.5 and chapter_like_ratio >= 0.25:
+            return level
+
+        if section_like_ratio == 0:
+            return level
+
+    if fallback_level is not None:
+        return fallback_level
+
+    return levels[0]
+
+
+def _build_chapters_from_boundaries(pages: list[dict], boundaries: list[dict], chapter_origin: str) -> list[dict]:
+    """Construit les chapitres à partir d'une liste de pages de début."""
+    if not pages:
+        return []
+
+    page_lookup = {page_data["page"]: page_data for page_data in pages}
+    page_numbers = sorted(page_lookup)
+    last_page = page_numbers[-1]
+    source = pages[0]["source"]
+    chapters = []
+
+    sorted_boundaries = sorted(boundaries, key=lambda item: (item["start_page"], item.get("level", 0)))
+    if sorted_boundaries and sorted_boundaries[0]["start_page"] > page_numbers[0]:
+        sorted_boundaries = [{
+            "title": "Introduction",
+            "start_page": page_numbers[0],
+            "level": 0,
+        }, *sorted_boundaries]
+
+    for index, boundary in enumerate(sorted_boundaries):
+        start_page = boundary["start_page"]
+        next_start_page = (
+            sorted_boundaries[index + 1]["start_page"] - 1
+            if index + 1 < len(sorted_boundaries)
+            else last_page
+        )
+
+        chapter_pages = [
+            page_lookup[page_number]
+            for page_number in page_numbers
+            if start_page <= page_number <= next_start_page
+        ]
+        if not chapter_pages:
+            continue
+
+        chapters.append({
+            "title": _sanitize_title(boundary["title"]),
+            "text": "\n".join(page_data["text"] for page_data in chapter_pages),
+            "start_page": chapter_pages[0]["page"],
+            "source": source,
+            "pages": chapter_pages,
+            "chapter_origin": chapter_origin,
+            "chapter_level": boundary.get("level", 0),
+        })
+
+    return chapters
+
+
+def _extract_heading_from_page(text: str) -> str:
+    """Extrait un titre plausible depuis le haut de la page pour le fallback regex."""
+    lines = [line.strip() for line in text.splitlines()[:12] if line.strip()]
+    if not lines:
+        return "Introduction"
+
     chapter_pattern = re.compile(
-        r"^(chapter|chapitre|part|partie)\s+(\d+|[ivxlc]+)",
+        r"^(chapter|chapitre|part|partie)\s+(\d+|[ivxlc]+)\b.*$",
+        re.IGNORECASE,
+    )
+    for line in lines:
+        if len(line) <= 140 and chapter_pattern.match(line):
+            return _sanitize_title(line)
+
+    return "Introduction"
+
+
+def _detect_chapters_with_patterns(pages: list[dict]) -> list[dict]:
+    """Fallback regex quand le PDF ne fournit pas de table des matières exploitable."""
+    chapter_pattern = re.compile(
+        r"^(chapter|chapitre|part|partie)\s+(\d+|[ivxlc]+)\b.*$",
         re.IGNORECASE | re.MULTILINE,
     )
 
@@ -105,6 +286,8 @@ def detect_chapters(pages: list[dict]) -> list[dict]:
         "start_page": 1,
         "source": "",
         "pages": [],
+        "chapter_origin": "regex",
+        "chapter_level": 0,
     }
 
     for page_data in pages:
@@ -113,31 +296,39 @@ def detect_chapters(pages: list[dict]) -> list[dict]:
         current_chapter["source"] = source
 
         match = chapter_pattern.search(text)
-        if match:
-            # Sauvegarder le chapitre précédent
+        if match and match.start() < 800:
             if current_chapter["text"].strip():
                 chapters.append(current_chapter.copy())
 
-            # Extraire le titre du chapitre (première ligne contenant le match)
-            line_start = text.rfind("\n", 0, match.start()) + 1
-            line_end = text.find("\n", match.end())
-            title = text[line_start:line_end].strip() if line_end != -1 else text[line_start:].strip()
-
             current_chapter = {
-                "title": title[:100],
+                "title": _extract_heading_from_page(text),
                 "text": text,
                 "start_page": page_data["page"],
                 "source": source,
                 "pages": [page_data],
+                "chapter_origin": "regex",
+                "chapter_level": 0,
             }
         else:
-            current_chapter["text"] += "\n" + text
+            current_chapter["text"] += ("\n" if current_chapter["text"] else "") + text
             current_chapter["pages"].append(page_data)
 
     if current_chapter["text"].strip():
         chapters.append(current_chapter)
 
     return chapters
+
+
+def detect_chapters(pages: list[dict], pdf_path: str | None = None) -> list[dict]:
+    """Détecte les chapitres via la table des matières du PDF, sinon via des patterns."""
+    if pdf_path:
+        toc_entries = _extract_toc_entries(pdf_path)
+        if toc_entries:
+            toc_chapters = _build_chapters_from_boundaries(pages, toc_entries, chapter_origin="toc")
+            if toc_chapters:
+                return toc_chapters
+
+    return _detect_chapters_with_patterns(pages)
 
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
@@ -160,7 +351,7 @@ def process_pdf(pdf_name: str) -> list[dict]:
         return []
 
     pages = extract_text_with_pages(pdf_path)
-    chapters = detect_chapters(pages)
+    chapters = detect_chapters(pages, pdf_path=pdf_path)
 
     documents = []
     for chapter in chapters:
@@ -175,6 +366,8 @@ def process_pdf(pdf_name: str) -> list[dict]:
                         "start_page": chapter["start_page"],
                         "page": page_data["page"],
                         "has_visuals": page_data["has_visuals"],
+                        "chapter_origin": chapter.get("chapter_origin", "regex"),
+                        "chapter_level": chapter.get("chapter_level", 0),
                         "chunk_index": i,
                     },
                 })
