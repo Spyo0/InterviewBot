@@ -1,9 +1,8 @@
-"""Logique RAG : Ollama + LangChain + ChromaDB."""
+"""Logique RAG : LangChain + ChromaDB + providers cloud (Groq / HuggingFace)."""
 
 import os
 from dotenv import load_dotenv
 import chromadb
-from langchain_ollama import ChatOllama
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -14,9 +13,46 @@ load_dotenv()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CHROMA_DIR = os.path.join(DATA_DIR, "chromadb")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 VALIDATION_THRESHOLD = float(os.getenv("VALIDATION_THRESHOLD", "0.70"))
+
+# Providers cloud
+PROVIDERS = {
+    "groq": {
+        "label": "Groq Cloud",
+        "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+    },
+    "huggingface": {
+        "label": "HuggingFace Inference",
+        "models": ["mistralai/Mistral-7B-Instruct-v0.3", "meta-llama/Meta-Llama-3-8B-Instruct"],
+    },
+}
+
+
+def build_llm(provider: str, model_name: str):
+    """Construit le LLM selon le provider choisi."""
+    if provider == "groq":
+        from langchain_groq import ChatGroq
+        api_key = os.getenv("GROQ_API_KEY", "")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY manquante dans .env")
+        return ChatGroq(model=model_name, api_key=api_key, temperature=0.7)
+
+    elif provider == "huggingface":
+        from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+        api_token = os.getenv("HF_API_TOKEN", "")
+        if not api_token:
+            raise ValueError("HF_API_TOKEN manquant dans .env")
+        llm = HuggingFaceEndpoint(
+            repo_id=model_name,
+            huggingfacehub_api_token=api_token,
+            temperature=0.7,
+            max_new_tokens=1024,
+        )
+        return ChatHuggingFace(llm=llm)
+
+    else:
+        raise ValueError(f"Provider inconnu : {provider}. Utilisez 'groq' ou 'huggingface'.")
 
 SYSTEM_PROMPT = """Tu es un coach d'entretien spécialisé en Finance Quantitative (Quant/Structureur).
 Tu poses des questions techniques sur : calcul stochastique, probabilités, pricing de produits dérivés, brainteasers logiques.
@@ -48,9 +84,10 @@ CORRECTION: [correction si nécessaire, sinon "Correct"]"""
 
 
 class JeSuisCoachEngine:
-    def __init__(self, model_name: str = "llama3"):
+    def __init__(self, provider: str = "groq", model_name: str = "llama-3.3-70b-versatile"):
+        self.provider = provider
         self.model_name = model_name
-        self.llm = ChatOllama(model=model_name, base_url=OLLAMA_BASE_URL, temperature=0.7)
+        self.llm = build_llm(provider, model_name)
         self.embeddings = HuggingFaceEmbeddings(
             model_name=EMBEDDING_MODEL,
             model_kwargs={"device": "cpu"},
