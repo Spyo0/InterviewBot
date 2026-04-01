@@ -556,6 +556,22 @@ def render_list_panel(title: str, items: list[str]) -> None:
         st.markdown("\n".join(f"- {item}" for item in items))
 
 
+def render_support_panel(source_ref: str = "", image_path: str | None = None, image_caption: str = "") -> None:
+    """Affiche la source PDF uniquement à la demande pour éviter de polluer l'énoncé."""
+    if not source_ref and not image_path:
+        return
+
+    with st.expander("Voir le support PDF", expanded=False):
+        if source_ref:
+            st.caption(f"Source PDF utilisee : {source_ref}")
+        if image_path:
+            st.image(
+                image_path,
+                caption=image_caption or "Support visuel du PDF",
+                width="stretch",
+            )
+
+
 # --- Tabs ---
 tab_interview, tab_exam, tab_pdf, tab_dashboard = st.tabs(["Entretien", "Examen", "PDF", "Dashboard"])
 
@@ -642,14 +658,11 @@ with tab_interview:
         st.caption(f"Difficulte de la question : {st.session_state['current_question_difficulty']}")
         if st.session_state["current_question_type"]:
             st.caption(f"Type de question : {st.session_state['current_question_type']}")
-        if st.session_state["current_question_source"]:
-            st.caption(f"Source PDF utilisee : {st.session_state['current_question_source']}")
-        if st.session_state["current_question_image_path"]:
-            st.image(
-                st.session_state["current_question_image_path"],
-                caption=st.session_state["current_question_image_caption"] or "Support visuel du PDF",
-                width="stretch",
-            )
+        render_support_panel(
+            source_ref=st.session_state["current_question_source"],
+            image_path=st.session_state["current_question_image_path"],
+            image_caption=st.session_state["current_question_image_caption"],
+        )
 
         answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
                               placeholder="Ecrivez votre reponse ici...")
@@ -882,14 +895,11 @@ with tab_exam:
         st.caption(f"Difficulte de la question : {current_question_meta.get('difficulty', 'Intermédiaire')}")
         if current_question_meta.get("question_type_label"):
             st.caption(f"Type de question : {current_question_meta['question_type_label']}")
-        if current_question_meta.get("display_source_ref"):
-            st.caption(f"Source PDF utilisee : {current_question_meta['display_source_ref']}")
-        if current_question_meta.get("image_path"):
-            st.image(
-                current_question_meta["image_path"],
-                caption=current_question_meta.get("image_caption") or "Support visuel du PDF",
-                width="stretch",
-            )
+        render_support_panel(
+            source_ref=current_question_meta.get("display_source_ref", ""),
+            image_path=current_question_meta.get("image_path"),
+            image_caption=current_question_meta.get("image_caption", ""),
+        )
 
         answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
                               placeholder="Ecrivez votre reponse...", key=f"exam_answer_{idx}")
@@ -1121,6 +1131,8 @@ with tab_dashboard:
     mastery_data = get_all_mastery()
     mastery_map = {m["topic"]: m for m in mastery_data} if mastery_data else {}
     times_data = get_response_times()
+    history = get_answer_history(300)
+    answers_df = pd.DataFrame(history) if history else pd.DataFrame()
 
     total_q = len(times_data) if times_data else 0
     mastered = sum(1 for m in mastery_data if m["status"] == "Maitrise") if mastery_data else 0
@@ -1217,16 +1229,106 @@ with tab_dashboard:
     else:
         st.info("Pas encore de donnees. Lancez une simulation.")
 
+    if not answers_df.empty:
+        st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Performance par difficulte</div>', unsafe_allow_html=True)
+        difficulty_df = answers_df.copy()
+        difficulty_df["difficulty"] = difficulty_df["difficulty"].fillna("").replace("", "Non renseignee")
+        difficulty_stats = (
+            difficulty_df.groupby("difficulty", as_index=False)
+            .agg(avg_score=("score", "mean"), count=("id", "count"))
+        )
+        difficulty_order = ["Fondamental", "Intermédiaire", "Élevé", "Non renseignee"]
+        difficulty_stats["difficulty"] = pd.Categorical(
+            difficulty_stats["difficulty"],
+            categories=difficulty_order,
+            ordered=True,
+        )
+        difficulty_stats = difficulty_stats.sort_values("difficulty")
+        fig_difficulty = px.bar(
+            difficulty_stats,
+            x="difficulty",
+            y="avg_score",
+            text="count",
+            labels={"difficulty": "", "avg_score": "Score moyen"},
+            color="avg_score",
+            color_continuous_scale=["#f87171", "#fbbf24", "#4ade80"],
+        )
+        fig_difficulty.update_traces(texttemplate="%{text} q.", textposition="outside")
+        fig_difficulty.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=10, b=0),
+            height=260,
+            showlegend=False,
+            font=dict(color="#666", size=11),
+            xaxis=dict(showgrid=False, color="#444"),
+            yaxis=dict(gridcolor="#1a1a1a", color="#444", tickformat=".0%"),
+            coloraxis_showscale=False,
+        )
+        st.plotly_chart(fig_difficulty, use_container_width=True)
+
+        st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Performance par type de question</div>', unsafe_allow_html=True)
+        type_df = answers_df.copy()
+        type_df["question_type"] = type_df["question_type"].fillna("").replace("", "Non renseigne")
+        type_stats = (
+            type_df.groupby("question_type", as_index=False)
+            .agg(avg_score=("score", "mean"), count=("id", "count"))
+            .sort_values(["avg_score", "count"], ascending=[False, False])
+        )
+        fig_type = px.bar(
+            type_stats,
+            x="question_type",
+            y="avg_score",
+            text="count",
+            labels={"question_type": "", "avg_score": "Score moyen"},
+            color="avg_score",
+            color_continuous_scale=["#f87171", "#fbbf24", "#4ade80"],
+        )
+        fig_type.update_traces(texttemplate="%{text} q.", textposition="outside")
+        fig_type.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=10, b=0),
+            height=280,
+            showlegend=False,
+            font=dict(color="#666", size=11),
+            xaxis=dict(showgrid=False, color="#444"),
+            yaxis=dict(gridcolor="#1a1a1a", color="#444", tickformat=".0%"),
+            coloraxis_showscale=False,
+        )
+        st.plotly_chart(fig_type, use_container_width=True)
+
+        st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Themes a renforcer</div>', unsafe_allow_html=True)
+        topic_stats = (
+            answers_df.groupby("session_topic", as_index=False)
+            .agg(
+                avg_score=("score", "mean"),
+                avg_time=("response_time_s", "mean"),
+                attempts=("id", "count"),
+            )
+            .sort_values(["avg_score", "attempts"], ascending=[True, False])
+            .head(8)
+        )
+        topic_stats["avg_score"] = (topic_stats["avg_score"] * 100).round(0).astype(int).astype(str) + "%"
+        topic_stats["avg_time"] = topic_stats["avg_time"].round(1).astype(str) + "s"
+        topic_stats.columns = ["Theme", "Score moyen", "Temps moyen", "Questions"]
+        st.dataframe(topic_stats, use_container_width=True, hide_index=True)
+
     # Recent history
-    history = get_answer_history(15)
-    if history:
+    recent_history = get_answer_history(15)
+    if recent_history:
         st.markdown('<div class="section-title">Historique recent</div>', unsafe_allow_html=True)
-        df_hist = pd.DataFrame(history)[
-            ["session_topic", "source_ref", "question", "score", "response_time_s", "created_at"]
+        df_hist = pd.DataFrame(recent_history)[
+            ["session_topic", "difficulty", "question_type", "source_ref", "question", "score", "response_time_s", "created_at"]
         ]
-        df_hist.columns = ["Theme", "Source", "Question", "Score", "Temps", "Date"]
+        df_hist.columns = ["Theme", "Difficulte", "Type", "Source", "Question", "Score", "Temps", "Date"]
         df_hist["Score"] = (df_hist["Score"] * 100).astype(int).astype(str) + "%"
         df_hist["Temps"] = df_hist["Temps"].round(1).astype(str) + "s"
+        df_hist["Difficulte"] = df_hist["Difficulte"].fillna("").replace("", "—")
+        df_hist["Type"] = df_hist["Type"].fillna("").replace("", "—")
         df_hist["Source"] = df_hist["Source"].fillna("").replace("", "—")
         df_hist["Source"] = df_hist["Source"].apply(
             lambda value: value if value == "—" or len(value) <= 55 else value[:55] + "..."
