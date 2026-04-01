@@ -42,7 +42,8 @@ Le moteur tourne entierement en cloud — aucune installation locale de modele r
 ## Fonctionnalites
 
 ### Mode Entretien
-- Choix du theme et du chapitre
+- Choix du theme
+- Selection automatique des chapitres PDF les plus pertinents pour ce theme
 - Timer de stress configurable (Off / 1 / 2 / 3 / 5 min) avec compte a rebours JS en temps reel
 - Difficulte progressive : les questions s'adaptent au score moyen de la session
 - Feedback immediat avec score, correction et temps de reponse
@@ -62,6 +63,7 @@ Le moteur tourne entierement en cloud — aucune installation locale de modele r
 - Import de supports PDF (max 5)
 - Decoupe automatique par chapitre
 - Indexation vectorielle pour le RAG
+- Utilisation automatique des chapitres pertinents selon le theme choisi
 
 ## Configuration (.env)
 

@@ -398,12 +398,17 @@ def init_session_state():
         "engine": None,
         "session_id": None,
         "current_question": None,
+        "current_question_topic": None,
+        "current_question_context": "",
+        "current_question_source": "",
         "question_start_time": None,
         "session_history": [],
         "questions_asked": [],
+        "question_sources": [],
         # Mode examen
         "exam_mode": False,
         "exam_questions": [],
+        "exam_question_meta": [],
         "exam_answers": [],
         "exam_index": 0,
         "exam_topic": None,
@@ -512,39 +517,55 @@ tab_interview, tab_exam, tab_pdf, tab_dashboard = st.tabs(["Entretien", "Examen"
 
 # ===================== TAB: ENTRETIEN =====================
 with tab_interview:
-    col1, col2, col3 = st.columns([2, 2, 1])
+    has_indexed_chapters = bool(engine.get_available_chapters())
+
+    col1, col2 = st.columns([3, 1])
     with col1:
         topic = st.selectbox("Theme", TOPICS, label_visibility="collapsed",
                              help="Choisissez un theme")
     with col2:
-        chapters = engine.get_available_chapters()
-        chapter = st.selectbox("Chapitre", ["Tous"] + chapters,
-                               label_visibility="collapsed",
-                               help="Filtrer par chapitre")
-        if chapter == "Tous":
-            chapter = None
-    with col3:
         timer_duration = st.selectbox("Timer", [0, 60, 120, 180, 300],
                                       format_func=lambda x: "Off" if x == 0 else f"{x//60}min",
                                       index=3, label_visibility="collapsed",
                                       help="Compte a rebours")
 
-    if st.button("Nouvelle question", use_container_width=True, type="primary"):
-        if st.session_state["session_id"] is None:
-            st.session_state["session_id"] = create_session(topic, chapter or "")
+    st.caption("Le theme est choisi ici, puis le bot selectionne automatiquement les chapitres PDF les plus pertinents.")
+    if not has_indexed_chapters:
+        st.info("Indexez au moins un PDF pour generer des questions a partir de vos supports.")
 
+    if st.button(
+        "Nouvelle question",
+        use_container_width=True,
+        type="primary",
+        disabled=not has_indexed_chapters,
+    ):
         history_text = "\n".join(
-            f"- {q}" for q in st.session_state["questions_asked"][-5:]
+            f"- {question_item}" for question_item in st.session_state["questions_asked"][-5:]
         )
 
         avg = _session_avg_score()
 
-        with st.spinner("Generation..."):
-            question = engine.generate_question(topic, chapter, history_text, avg_score=avg)
+        try:
+            with st.spinner("Generation..."):
+                question_payload = engine.generate_question(
+                    topic=topic,
+                    history=history_text,
+                    avg_score=avg,
+                    excluded_sources=st.session_state["question_sources"],
+                )
+        except ValueError as exc:
+            st.warning(str(exc))
+        else:
+            if st.session_state["session_id"] is None:
+                st.session_state["session_id"] = create_session(topic)
 
-        st.session_state["current_question"] = question
-        st.session_state["question_start_time"] = time.time()
-        st.session_state["questions_asked"].append(question)
+            st.session_state["current_question"] = question_payload["question"]
+            st.session_state["current_question_topic"] = topic
+            st.session_state["current_question_context"] = question_payload["context"]
+            st.session_state["current_question_source"] = question_payload["source_ref"]
+            st.session_state["question_start_time"] = time.time()
+            st.session_state["questions_asked"].append(question_payload["question"])
+            st.session_state["question_sources"].append(question_payload["source_ref"])
 
     # Display question
     if st.session_state["current_question"]:
@@ -556,6 +577,8 @@ with tab_interview:
             f'<div class="question-block">{st.session_state["current_question"]}</div>',
             unsafe_allow_html=True,
         )
+        if st.session_state["current_question_source"]:
+            st.caption(f"Source PDF utilisee : {st.session_state['current_question_source']}")
 
         answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
                               placeholder="Ecrivez votre reponse ici...")
@@ -568,7 +591,10 @@ with tab_interview:
 
                 with st.spinner("Evaluation..."):
                     evaluation = engine.evaluate_answer(
-                        st.session_state["current_question"], answer, topic
+                        st.session_state["current_question"],
+                        answer,
+                        st.session_state["current_question_topic"] or topic,
+                        context=st.session_state["current_question_context"],
                     )
 
                 score = evaluation["score"]
@@ -578,9 +604,17 @@ with tab_interview:
                 save_answer(
                     st.session_state["session_id"],
                     st.session_state["current_question"],
-                    answer, score, elapsed, feedback,
+                    answer,
+                    score,
+                    elapsed,
+                    feedback,
+                    source_ref=st.session_state["current_question_source"],
                 )
-                update_mastery(topic, score, elapsed)
+                update_mastery(
+                    st.session_state["current_question_topic"] or topic,
+                    score,
+                    elapsed,
+                )
 
                 st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
 
@@ -619,6 +653,7 @@ with tab_interview:
                     "question": st.session_state["current_question"],
                     "score": score,
                     "time": elapsed,
+                    "source_ref": st.session_state["current_question_source"],
                 })
 
     # Session history
@@ -635,6 +670,8 @@ with tab_interview:
                 badge_class = "score-fail"
             with st.expander(f"Q{i}  ·  {score_pct}%  ·  {item['time']:.1f}s"):
                 st.write(item["question"])
+                if item.get("source_ref"):
+                    st.caption(f"Source : {item['source_ref']}")
 
     # Reset
     if st.session_state["session_id"] is not None:
@@ -642,8 +679,12 @@ with tab_interview:
         if st.button("Reinitialiser la session", type="secondary"):
             st.session_state["session_id"] = None
             st.session_state["current_question"] = None
+            st.session_state["current_question_topic"] = None
+            st.session_state["current_question_context"] = ""
+            st.session_state["current_question_source"] = ""
             st.session_state["session_history"] = []
             st.session_state["questions_asked"] = []
+            st.session_state["question_sources"] = []
             st.rerun()
 
 
@@ -652,27 +693,39 @@ EXAM_COUNT = 10
 
 with tab_exam:
     if not st.session_state["exam_mode"] and st.session_state["exam_results"] is None:
+        has_indexed_chapters = bool(engine.get_available_chapters())
+
         # Config exam
         st.markdown('<div class="section-title">Mode examen</div>', unsafe_allow_html=True)
         st.caption(f"{EXAM_COUNT} questions d'affilee · Pas de feedback entre les questions · Correction a la fin")
+        st.caption("Le theme guide la recherche, puis les chapitres PDF pertinents sont selectionnes automatiquement.")
 
         exam_topic = st.selectbox("Theme de l'examen", TOPICS, key="exam_topic_select")
+        if not has_indexed_chapters:
+            st.info("Indexez au moins un PDF avant de lancer l'examen.")
 
-        if st.button("Lancer l'examen", use_container_width=True, type="primary"):
-            st.session_state["exam_mode"] = True
-            st.session_state["exam_topic"] = exam_topic
-            st.session_state["exam_questions"] = []
-            st.session_state["exam_answers"] = []
-            st.session_state["exam_index"] = 0
-            st.session_state["exam_results"] = None
-            st.session_state["session_id"] = create_session(exam_topic, "examen")
-
-            # Generate first question
-            with st.spinner("Preparation de l'examen..."):
-                q = engine.generate_question(exam_topic)
-            st.session_state["exam_questions"].append(q)
-            st.session_state["question_start_time"] = time.time()
-            st.rerun()
+        if st.button(
+            "Lancer l'examen",
+            use_container_width=True,
+            type="primary",
+            disabled=not has_indexed_chapters,
+        ):
+            try:
+                with st.spinner("Preparation de l'examen..."):
+                    question_payload = engine.generate_question(topic=exam_topic)
+            except ValueError as exc:
+                st.warning(str(exc))
+            else:
+                st.session_state["exam_mode"] = True
+                st.session_state["exam_topic"] = exam_topic
+                st.session_state["exam_questions"] = [question_payload["question"]]
+                st.session_state["exam_question_meta"] = [question_payload]
+                st.session_state["exam_answers"] = []
+                st.session_state["exam_index"] = 0
+                st.session_state["exam_results"] = None
+                st.session_state["session_id"] = create_session(exam_topic, "auto_pdf")
+                st.session_state["question_start_time"] = time.time()
+                st.rerun()
 
     elif st.session_state["exam_mode"]:
         idx = st.session_state["exam_index"]
@@ -697,10 +750,13 @@ with tab_exam:
 
         # Question
         current_q = st.session_state["exam_questions"][idx]
+        current_question_meta = st.session_state["exam_question_meta"][idx]
         st.markdown(
             f'<div class="question-block">{current_q}</div>',
             unsafe_allow_html=True,
         )
+        if current_question_meta.get("source_ref"):
+            st.caption(f"Source PDF utilisee : {current_question_meta['source_ref']}")
 
         answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
                               placeholder="Ecrivez votre reponse...", key=f"exam_answer_{idx}")
@@ -718,35 +774,57 @@ with tab_exam:
 
                 if idx < total - 1:
                     # Generate next question
-                    with st.spinner("Question suivante..."):
-                        q = engine.generate_question(
-                            st.session_state["exam_topic"],
-                            history="\n".join(f"- {q}" for q in st.session_state["exam_questions"][-5:])
-                        )
-                    st.session_state["exam_questions"].append(q)
-                    st.session_state["exam_index"] = idx + 1
-                    st.session_state["question_start_time"] = time.time()
-                    st.rerun()
+                    try:
+                        with st.spinner("Question suivante..."):
+                            question_payload = engine.generate_question(
+                                topic=st.session_state["exam_topic"],
+                                history="\n".join(
+                                    f"- {question_item}" for question_item in st.session_state["exam_questions"][-5:]
+                                ),
+                                excluded_sources=[
+                                    item["source_ref"] for item in st.session_state["exam_question_meta"]
+                                ],
+                            )
+                    except ValueError as exc:
+                        st.warning(str(exc))
+                    else:
+                        st.session_state["exam_questions"].append(question_payload["question"])
+                        st.session_state["exam_question_meta"].append(question_payload)
+                        st.session_state["exam_index"] = idx + 1
+                        st.session_state["question_start_time"] = time.time()
+                        st.rerun()
                 else:
                     # End exam — evaluate all answers
                     st.session_state["exam_mode"] = False
                     results = []
                     with st.spinner("Correction de l'examen..."):
-                        for i, (q, a) in enumerate(zip(
+                        for i, (q, a, meta) in enumerate(zip(
                             st.session_state["exam_questions"],
-                            st.session_state["exam_answers"]
+                            st.session_state["exam_answers"],
+                            st.session_state["exam_question_meta"],
                         )):
-                            evaluation = engine.evaluate_answer(q, a["answer"], st.session_state["exam_topic"])
+                            evaluation = engine.evaluate_answer(
+                                q,
+                                a["answer"],
+                                st.session_state["exam_topic"],
+                                context=meta.get("context", ""),
+                            )
                             elapsed = a["time"]
                             save_answer(
-                                st.session_state["session_id"], q, a["answer"],
-                                evaluation["score"], elapsed, evaluation["feedback"],
+                                st.session_state["session_id"],
+                                q,
+                                a["answer"],
+                                evaluation["score"],
+                                elapsed,
+                                evaluation["feedback"],
+                                source_ref=meta.get("source_ref", ""),
                             )
                             update_mastery(st.session_state["exam_topic"], evaluation["score"], elapsed)
                             results.append({
                                 "question": q,
                                 "answer": a["answer"],
                                 "time": elapsed,
+                                "source_ref": meta.get("source_ref", ""),
                                 **evaluation,
                             })
                     st.session_state["exam_results"] = results
@@ -796,6 +874,8 @@ with tab_exam:
                 badge_class = "score-fail"
             with st.expander(f"Q{i}  ·  {score_pct}%  ·  {r['time']:.0f}s"):
                 st.markdown(f"**Question :** {r['question']}")
+                if r.get("source_ref"):
+                    st.markdown(f"**Source :** {r['source_ref']}")
                 st.markdown(f"**Reponse :** {r['answer']}")
                 st.markdown(f"**Feedback :** {r['feedback']}")
                 if r["correction"] and r["correction"].lower() != "correct":
@@ -804,6 +884,7 @@ with tab_exam:
         if st.button("Nouvel examen", use_container_width=True, type="primary"):
             st.session_state["exam_mode"] = False
             st.session_state["exam_questions"] = []
+            st.session_state["exam_question_meta"] = []
             st.session_state["exam_answers"] = []
             st.session_state["exam_index"] = 0
             st.session_state["exam_results"] = None
@@ -853,6 +934,7 @@ with tab_pdf:
     chapters = engine.get_available_chapters()
     if chapters:
         st.markdown('<div class="section-title">Chapitres indexes</div>', unsafe_allow_html=True)
+        st.caption("Ces chapitres sont ensuite selectionnes automatiquement en fonction du theme choisi.")
         for ch in chapters:
             st.markdown(
                 f'<div class="pdf-item"><span class="pdf-dot"></span>{ch}</div>',
@@ -967,10 +1049,16 @@ with tab_dashboard:
     if history:
         st.markdown('<div class="section-title">Historique recent</div>', unsafe_allow_html=True)
         df_hist = pd.DataFrame(history)[
-            ["session_topic", "question", "score", "response_time_s", "created_at"]
+            ["session_topic", "source_ref", "question", "score", "response_time_s", "created_at"]
         ]
-        df_hist.columns = ["Theme", "Question", "Score", "Temps", "Date"]
+        df_hist.columns = ["Theme", "Source", "Question", "Score", "Temps", "Date"]
         df_hist["Score"] = (df_hist["Score"] * 100).astype(int).astype(str) + "%"
         df_hist["Temps"] = df_hist["Temps"].round(1).astype(str) + "s"
-        df_hist["Question"] = df_hist["Question"].str[:70] + "..."
+        df_hist["Source"] = df_hist["Source"].fillna("").replace("", "—")
+        df_hist["Source"] = df_hist["Source"].apply(
+            lambda value: value if value == "—" or len(value) <= 55 else value[:55] + "..."
+        )
+        df_hist["Question"] = df_hist["Question"].apply(
+            lambda value: value if len(value) <= 70 else value[:70] + "..."
+        )
         st.dataframe(df_hist, use_container_width=True, hide_index=True, height=300)

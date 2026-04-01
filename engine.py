@@ -1,6 +1,7 @@
 """Logique RAG : LangChain + ChromaDB + providers cloud (Groq / HuggingFace)."""
 
 import os
+from typing import Optional
 from dotenv import load_dotenv
 import chromadb
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
@@ -60,6 +61,7 @@ Tu poses des questions techniques sur : calcul stochastique, probabilités, pric
 Règles :
 - Pose UNE question à la fois, claire et précise.
 - Adapte la difficulté au niveau montré par les réponses précédentes.
+- Appuie-toi en priorité sur le contexte issu des PDF indexés quand il est fourni.
 - Pour les calculs mentaux, demande des approximations (ex: √0.8, log(1.05)).
 - Cite toujours la source (livre/page) quand tu t'appuies sur le contexte fourni.
 - Évalue les réponses avec rigueur mais bienveillance.
@@ -152,10 +154,22 @@ class JeSuisCoachEngine:
 
         return total
 
-    def search_context(self, query: str, n_results: int = 3, chapter_filter: str = None) -> str:
-        """Recherche le contexte pertinent dans ChromaDB."""
+    @staticmethod
+    def _format_source_ref(metadata: dict) -> str:
+        source = metadata.get("source", "?")
+        chapter = metadata.get("chapter", "?")
+        start_page = metadata.get("start_page", "?")
+        return f"{source} - {chapter} - p.{start_page}"
+
+    def _query_context_matches(
+        self,
+        query: str,
+        n_results: int = 3,
+        chapter_filter: Optional[str] = None,
+    ) -> list[dict]:
+        """Retourne les chunks les plus pertinents avec leur metadata."""
         if self.collection.count() == 0:
-            return ""
+            return []
 
         where_filter = None
         if chapter_filter:
@@ -169,19 +183,90 @@ class JeSuisCoachEngine:
         )
 
         if not results["documents"][0]:
+            return []
+
+        matches = []
+        for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+            matches.append({
+                "text": doc,
+                "metadata": meta,
+                "source_ref": self._format_source_ref(meta),
+            })
+        return matches
+
+    def _build_context_block(self, matches: list[dict]) -> str:
+        """Construit le bloc de contexte à partir des chunks sélectionnés."""
+        if not matches:
             return ""
 
         context_parts = []
-        for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
-            ref = f"[{meta.get('source', '?')} - {meta.get('chapter', '?')} - p.{meta.get('start_page', '?')}]"
-            context_parts.append(f"{ref}\n{doc}")
+        for match in matches:
+            meta = match["metadata"]
+            ref = f"[{self._format_source_ref(meta)}]"
+            context_parts.append(f"{ref}\n{match['text']}")
 
         return "\n\n---\n\n".join(context_parts)
 
-    def generate_question(self, topic: str, chapter: str = None, history: str = "", avg_score: float = None) -> str:
-        """Génère une question d'entretien avec difficulté progressive."""
-        context = self.search_context(topic, chapter_filter=chapter)
+    def search_context(self, query: str, n_results: int = 3, chapter_filter: str = None) -> str:
+        """Recherche le contexte pertinent dans ChromaDB."""
+        matches = self._query_context_matches(query, n_results=n_results, chapter_filter=chapter_filter)
+        return self._build_context_block(matches)
+
+    def select_relevant_chapters(
+        self,
+        topic: str,
+        excluded_sources: Optional[list[str]] = None,
+        n_results: int = 3,
+    ) -> list[dict]:
+        """Sélectionne les chapitres PDF les plus pertinents pour un thème donné."""
+        matches = self._query_context_matches(topic, n_results=max(6, n_results * 4))
+        if not matches:
+            return []
+
+        excluded = set(excluded_sources or [])
+        preferred_matches = []
+        fallback_matches = []
+        seen_refs = set()
+
+        for match in matches:
+            source_ref = match["source_ref"]
+            if source_ref in seen_refs:
+                continue
+            seen_refs.add(source_ref)
+
+            if source_ref in excluded:
+                fallback_matches.append(match)
+            else:
+                preferred_matches.append(match)
+
+        selected_matches = preferred_matches[:n_results]
+        if len(selected_matches) < n_results:
+            selected_matches.extend(
+                fallback_matches[: n_results - len(selected_matches)]
+            )
+
+        return selected_matches
+
+    def generate_question(
+        self,
+        topic: str,
+        history: str = "",
+        avg_score: float = None,
+        excluded_sources: Optional[list[str]] = None,
+    ) -> dict:
+        """Génère une question d'entretien à partir des chapitres PDF pertinents."""
+        selected_matches = self.select_relevant_chapters(
+            topic=topic,
+            excluded_sources=excluded_sources,
+        )
+        if not selected_matches:
+            raise ValueError(
+                "Aucun chapitre PDF indexé n'est disponible pour générer une question."
+            )
+
+        context = self._build_context_block(selected_matches)
         context_block = f"\nContexte des livres de référence :\n{context}" if context else ""
+        primary_match = selected_matches[0]
 
         # Difficulté progressive
         difficulty_block = ""
@@ -196,22 +281,34 @@ class JeSuisCoachEngine:
         prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
             ("human", """Génère une question d'entretien sur le thème : {topic}
+Appuie-toi prioritairement sur les extraits PDF fournis ci-dessus.
+Choisis l'angle le plus pertinent parmi les chapitres remontés pour ce thème.
 {difficulty_block}
 {history_block}
-Pose une seule question technique précise."""),
+Pose une seule question technique précise en citant la source utilisée."""),
         ])
 
         chain = prompt | self.llm | StrOutputParser()
-        return chain.invoke({
+        question = chain.invoke({
             "context": context_block,
             "topic": topic,
             "difficulty_block": difficulty_block,
             "history_block": f"\nQuestions déjà posées dans cette session :\n{history}" if history else "",
         })
 
-    def evaluate_answer(self, question: str, answer: str, topic: str) -> dict:
+        source_refs = [match["source_ref"] for match in selected_matches]
+        return {
+            "question": question,
+            "context": context,
+            "source_ref": source_refs[0],
+            "source_refs": source_refs,
+            "chapter": primary_match["metadata"].get("chapter", ""),
+            "source": primary_match["metadata"].get("source", ""),
+        }
+
+    def evaluate_answer(self, question: str, answer: str, topic: str, context: str = "") -> dict:
         """Évalue la réponse de l'utilisateur."""
-        context = self.search_context(question)
+        reference_context = context or self.search_context(question)
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", "Tu es un évaluateur rigoureux d'entretiens Quant."),
@@ -222,7 +319,7 @@ Pose une seule question technique précise."""),
         raw = chain.invoke({
             "question": question,
             "answer": answer,
-            "context": context if context else "Pas de contexte de référence disponible.",
+            "context": reference_context if reference_context else "Pas de contexte de référence disponible.",
         })
 
         return self._parse_evaluation(raw)
