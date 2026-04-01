@@ -386,6 +386,8 @@ TOPICS = [
     "Calcul mental / Approximations",
 ]
 
+DIFFICULTY_OPTIONS = ["Auto", "Fondamental", "Intermédiaire", "Élevé"]
+
 
 # --- Init Engine ---
 @st.cache_resource
@@ -399,6 +401,7 @@ def init_session_state():
         "session_id": None,
         "current_question": None,
         "current_question_topic": None,
+        "current_question_difficulty": "Auto",
         "current_question_context": "",
         "current_question_source": "",
         "question_start_time": None,
@@ -412,6 +415,7 @@ def init_session_state():
         "exam_answers": [],
         "exam_index": 0,
         "exam_topic": None,
+        "exam_difficulty": "Auto",
         "exam_results": None,
     }
     for k, v in defaults.items():
@@ -511,6 +515,13 @@ def render_timer(duration_s: int = 180):
     """, unsafe_allow_html=True)
 
 
+def render_markdown_panel(title: str, content: str) -> None:
+    """Affiche un bloc Markdown natif pour préserver le rendu LaTeX."""
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.markdown(content)
+
+
 # --- Tabs ---
 tab_interview, tab_exam, tab_pdf, tab_dashboard = st.tabs(["Entretien", "Examen", "PDF", "Dashboard"])
 
@@ -519,17 +530,29 @@ tab_interview, tab_exam, tab_pdf, tab_dashboard = st.tabs(["Entretien", "Examen"
 with tab_interview:
     has_indexed_chapters = bool(engine.get_available_chapters())
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
         topic = st.selectbox("Theme", TOPICS, label_visibility="collapsed",
                              help="Choisissez un theme")
     with col2:
+        difficulty_label = st.selectbox(
+            "Difficulte",
+            DIFFICULTY_OPTIONS,
+            index=0,
+            label_visibility="collapsed",
+            help="Choisissez un niveau fixe ou laissez le bot adapter la difficulte",
+        )
+    with col3:
         timer_duration = st.selectbox("Timer", [0, 60, 120, 180, 300],
                                       format_func=lambda x: "Off" if x == 0 else f"{x//60}min",
                                       index=3, label_visibility="collapsed",
                                       help="Compte a rebours")
 
     st.caption("Le theme est choisi ici, puis le bot selectionne automatiquement les chapitres PDF les plus pertinents.")
+    if difficulty_label == "Auto":
+        st.caption("Difficulte : automatique, selon ton score moyen de session.")
+    else:
+        st.caption(f"Difficulte forcee : {difficulty_label}.")
     if not has_indexed_chapters:
         st.info("Indexez au moins un PDF pour generer des questions a partir de vos supports.")
 
@@ -552,6 +575,7 @@ with tab_interview:
                     history=history_text,
                     avg_score=avg,
                     excluded_sources=st.session_state["question_sources"],
+                    difficulty_level=None if difficulty_label == "Auto" else difficulty_label,
                 )
         except ValueError as exc:
             st.warning(str(exc))
@@ -561,6 +585,7 @@ with tab_interview:
 
             st.session_state["current_question"] = question_payload["question"]
             st.session_state["current_question_topic"] = topic
+            st.session_state["current_question_difficulty"] = question_payload["difficulty"]
             st.session_state["current_question_context"] = question_payload["context"]
             st.session_state["current_question_source"] = question_payload["source_ref"]
             st.session_state["question_start_time"] = time.time()
@@ -573,10 +598,8 @@ with tab_interview:
         if timer_duration > 0:
             render_timer(timer_duration)
 
-        st.markdown(
-            f'<div class="question-block">{st.session_state["current_question"]}</div>',
-            unsafe_allow_html=True,
-        )
+        render_markdown_panel("Question", st.session_state["current_question"])
+        st.caption(f"Difficulte de la question : {st.session_state['current_question_difficulty']}")
         if st.session_state["current_question_source"]:
             st.caption(f"Source PDF utilisee : {st.session_state['current_question_source']}")
 
@@ -643,16 +666,15 @@ with tab_interview:
                     )
 
                 # Feedback
-                fb_html = f'<div class="feedback-block"><strong>Feedback</strong><br>{feedback}'
+                render_markdown_panel("Feedback", feedback)
                 if correction and correction.lower() != "correct":
-                    fb_html += f'<br><br><strong>Correction</strong><br>{correction}'
-                fb_html += '</div>'
-                st.markdown(fb_html, unsafe_allow_html=True)
+                    render_markdown_panel("Correction", correction)
 
                 st.session_state["session_history"].append({
                     "question": st.session_state["current_question"],
                     "score": score,
                     "time": elapsed,
+                    "difficulty": st.session_state["current_question_difficulty"],
                     "source_ref": st.session_state["current_question_source"],
                 })
 
@@ -670,6 +692,8 @@ with tab_interview:
                 badge_class = "score-fail"
             with st.expander(f"Q{i}  ·  {score_pct}%  ·  {item['time']:.1f}s"):
                 st.write(item["question"])
+                if item.get("difficulty"):
+                    st.caption(f"Difficulte : {item['difficulty']}")
                 if item.get("source_ref"):
                     st.caption(f"Source : {item['source_ref']}")
 
@@ -680,6 +704,7 @@ with tab_interview:
             st.session_state["session_id"] = None
             st.session_state["current_question"] = None
             st.session_state["current_question_topic"] = None
+            st.session_state["current_question_difficulty"] = "Auto"
             st.session_state["current_question_context"] = ""
             st.session_state["current_question_source"] = ""
             st.session_state["session_history"] = []
@@ -700,7 +725,16 @@ with tab_exam:
         st.caption(f"{EXAM_COUNT} questions d'affilee · Pas de feedback entre les questions · Correction a la fin")
         st.caption("Le theme guide la recherche, puis les chapitres PDF pertinents sont selectionnes automatiquement.")
 
-        exam_topic = st.selectbox("Theme de l'examen", TOPICS, key="exam_topic_select")
+        col_exam_1, col_exam_2 = st.columns(2)
+        with col_exam_1:
+            exam_topic = st.selectbox("Theme de l'examen", TOPICS, key="exam_topic_select")
+        with col_exam_2:
+            exam_difficulty = st.selectbox(
+                "Difficulte de l'examen",
+                DIFFICULTY_OPTIONS,
+                index=0,
+                key="exam_difficulty_select",
+            )
         if not has_indexed_chapters:
             st.info("Indexez au moins un PDF avant de lancer l'examen.")
 
@@ -712,12 +746,16 @@ with tab_exam:
         ):
             try:
                 with st.spinner("Preparation de l'examen..."):
-                    question_payload = engine.generate_question(topic=exam_topic)
+                    question_payload = engine.generate_question(
+                        topic=exam_topic,
+                        difficulty_level=None if exam_difficulty == "Auto" else exam_difficulty,
+                    )
             except ValueError as exc:
                 st.warning(str(exc))
             else:
                 st.session_state["exam_mode"] = True
                 st.session_state["exam_topic"] = exam_topic
+                st.session_state["exam_difficulty"] = exam_difficulty
                 st.session_state["exam_questions"] = [question_payload["question"]]
                 st.session_state["exam_question_meta"] = [question_payload]
                 st.session_state["exam_answers"] = []
@@ -751,10 +789,8 @@ with tab_exam:
         # Question
         current_q = st.session_state["exam_questions"][idx]
         current_question_meta = st.session_state["exam_question_meta"][idx]
-        st.markdown(
-            f'<div class="question-block">{current_q}</div>',
-            unsafe_allow_html=True,
-        )
+        render_markdown_panel("Question", current_q)
+        st.caption(f"Difficulte de la question : {current_question_meta.get('difficulty', 'Intermédiaire')}")
         if current_question_meta.get("source_ref"):
             st.caption(f"Source PDF utilisee : {current_question_meta['source_ref']}")
 
@@ -784,6 +820,9 @@ with tab_exam:
                                 excluded_sources=[
                                     item["source_ref"] for item in st.session_state["exam_question_meta"]
                                 ],
+                                difficulty_level=None
+                                if st.session_state["exam_difficulty"] == "Auto"
+                                else st.session_state["exam_difficulty"],
                             )
                     except ValueError as exc:
                         st.warning(str(exc))
@@ -824,6 +863,7 @@ with tab_exam:
                                 "question": q,
                                 "answer": a["answer"],
                                 "time": elapsed,
+                                "difficulty": meta.get("difficulty", "Intermédiaire"),
                                 "source_ref": meta.get("source_ref", ""),
                                 **evaluation,
                             })
@@ -873,13 +913,19 @@ with tab_exam:
             else:
                 badge_class = "score-fail"
             with st.expander(f"Q{i}  ·  {score_pct}%  ·  {r['time']:.0f}s"):
-                st.markdown(f"**Question :** {r['question']}")
+                st.markdown("**Question**")
+                st.markdown(r["question"])
+                if r.get("difficulty"):
+                    st.markdown(f"**Difficulte :** {r['difficulty']}")
                 if r.get("source_ref"):
                     st.markdown(f"**Source :** {r['source_ref']}")
-                st.markdown(f"**Reponse :** {r['answer']}")
-                st.markdown(f"**Feedback :** {r['feedback']}")
+                st.markdown("**Reponse**")
+                st.markdown(r["answer"])
+                st.markdown("**Feedback**")
+                st.markdown(r["feedback"])
                 if r["correction"] and r["correction"].lower() != "correct":
-                    st.markdown(f"**Correction :** {r['correction']}")
+                    st.markdown("**Correction**")
+                    st.markdown(r["correction"])
 
         if st.button("Nouvel examen", use_container_width=True, type="primary"):
             st.session_state["exam_mode"] = False
@@ -887,6 +933,7 @@ with tab_exam:
             st.session_state["exam_question_meta"] = []
             st.session_state["exam_answers"] = []
             st.session_state["exam_index"] = 0
+            st.session_state["exam_difficulty"] = "Auto"
             st.session_state["exam_results"] = None
             st.session_state["exam_topic"] = None
             st.session_state["session_id"] = None

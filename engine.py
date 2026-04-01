@@ -29,6 +29,12 @@ PROVIDERS = {
     },
 }
 
+DIFFICULTY_INSTRUCTIONS = {
+    "Fondamental": "\nNiveau de difficulté : FONDAMENTAL. Pose une question de base pour consolider les acquis.",
+    "Intermédiaire": "\nNiveau de difficulté : INTERMÉDIAIRE. Pose une question standard d'entretien.",
+    "Élevé": "\nNiveau de difficulté : ÉLEVÉ. Pose une question avancée, piège ou multi-étapes.",
+}
+
 
 def build_llm(provider: str, model_name: str):
     """Construit le LLM selon le provider choisi."""
@@ -212,6 +218,20 @@ class JeSuisCoachEngine:
         matches = self._query_context_matches(query, n_results=n_results, chapter_filter=chapter_filter)
         return self._build_context_block(matches)
 
+    @staticmethod
+    def _resolve_difficulty(avg_score: Optional[float], difficulty_level: Optional[str]) -> tuple[str, str]:
+        """Détermine le niveau de difficulté effectif et son instruction associée."""
+        if difficulty_level and difficulty_level in DIFFICULTY_INSTRUCTIONS:
+            return difficulty_level, DIFFICULTY_INSTRUCTIONS[difficulty_level]
+
+        if avg_score is None:
+            return "Intermédiaire", DIFFICULTY_INSTRUCTIONS["Intermédiaire"]
+        if avg_score >= 0.80:
+            return "Élevé", DIFFICULTY_INSTRUCTIONS["Élevé"]
+        if avg_score >= 0.50:
+            return "Intermédiaire", DIFFICULTY_INSTRUCTIONS["Intermédiaire"]
+        return "Fondamental", DIFFICULTY_INSTRUCTIONS["Fondamental"]
+
     def select_relevant_chapters(
         self,
         topic: str,
@@ -253,6 +273,7 @@ class JeSuisCoachEngine:
         history: str = "",
         avg_score: float = None,
         excluded_sources: Optional[list[str]] = None,
+        difficulty_level: Optional[str] = None,
     ) -> dict:
         """Génère une question d'entretien à partir des chapitres PDF pertinents."""
         selected_matches = self.select_relevant_chapters(
@@ -267,16 +288,10 @@ class JeSuisCoachEngine:
         context = self._build_context_block(selected_matches)
         context_block = f"\nContexte des livres de référence :\n{context}" if context else ""
         primary_match = selected_matches[0]
-
-        # Difficulté progressive
-        difficulty_block = ""
-        if avg_score is not None:
-            if avg_score >= 0.80:
-                difficulty_block = "\nNiveau de difficulté : ÉLEVÉ. Pose une question avancée, piège ou multi-étapes."
-            elif avg_score >= 0.50:
-                difficulty_block = "\nNiveau de difficulté : INTERMÉDIAIRE. Pose une question standard d'entretien."
-            else:
-                difficulty_block = "\nNiveau de difficulté : FONDAMENTAL. Pose une question de base pour consolider les acquis."
+        resolved_difficulty, difficulty_block = self._resolve_difficulty(
+            avg_score=avg_score,
+            difficulty_level=difficulty_level,
+        )
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", SYSTEM_PROMPT),
@@ -304,6 +319,7 @@ Pose une seule question technique précise en citant la source utilisée."""),
             "source_refs": source_refs,
             "chapter": primary_match["metadata"].get("chapter", ""),
             "source": primary_match["metadata"].get("source", ""),
+            "difficulty": resolved_difficulty,
         }
 
     def evaluate_answer(self, question: str, answer: str, topic: str, context: str = "") -> dict:

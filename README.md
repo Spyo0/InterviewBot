@@ -43,6 +43,7 @@ Le moteur tourne entierement en cloud — aucune installation locale de modele r
 
 ### Mode Entretien
 - Choix du theme
+- Choix de la difficulte : Auto, Fondamental, Intermediaire, Eleve
 - Selection automatique des chapitres PDF les plus pertinents pour ce theme
 - Timer de stress configurable (Off / 1 / 2 / 3 / 5 min) avec compte a rebours JS en temps reel
 - Difficulte progressive : les questions s'adaptent au score moyen de la session
