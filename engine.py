@@ -63,6 +63,9 @@ Règles :
 - Pour les calculs mentaux, demande des approximations (ex: √0.8, log(1.05)).
 - Cite toujours la source (livre/page) quand tu t'appuies sur le contexte fourni.
 - Évalue les réponses avec rigueur mais bienveillance.
+- Formate TOUTES les équations et expressions mathématiques en LaTeX inline ($...$) ou display ($$...$$).
+  Exemples : $dS_t = \\mu S_t dt + \\sigma S_t dW_t$, $\\mathbb{{E}}[X]$, $\\frac{{\\partial V}}{{\\partial t}}$.
+- Ne jamais écrire de formule en texte brut. Toujours utiliser la notation LaTeX.
 
 {context}"""
 
@@ -72,15 +75,21 @@ Question : {question}
 Réponse de l'utilisateur : {answer}
 Contexte de référence : {context}
 
+Consignes d'évaluation :
+- Vérifie la rigueur mathématique : chaque terme doit être présent (ex: ne pas oublier $dt$, $dW_t$ dans le Lemme d'Itô).
+- Pénalise fortement les erreurs de signe, les termes manquants et les confusions de notation.
+- Pour les démonstrations, vérifie que chaque étape est justifiée.
+- Formate toutes les équations en LaTeX ($...$  ou $$...$$).
+
 Donne :
 1. Un score entre 0.0 et 1.0 (précision et complétude de la réponse)
-2. Un feedback constructif en français
-3. La réponse correcte si l'utilisateur s'est trompé
+2. Un feedback constructif en français avec les erreurs précises identifiées
+3. La réponse correcte complète si l'utilisateur s'est trompé
 
 Format EXACT de réponse :
 SCORE: [nombre entre 0.0 et 1.0]
-FEEDBACK: [ton feedback]
-CORRECTION: [correction si nécessaire, sinon "Correct"]"""
+FEEDBACK: [ton feedback détaillé]
+CORRECTION: [correction complète en LaTeX si nécessaire, sinon "Correct"]"""
 
 
 class JeSuisCoachEngine:
