@@ -98,8 +98,53 @@ def get_page_preview(
         doc.close()
 
 
+def _extract_markdown_with_pymupdf4llm(pdf_path: str) -> list[dict] | None:
+    """Extrait le texte en Markdown (avec formules LaTeX préservées) via pymupdf4llm.
+
+    Retourne None si la librairie n'est pas disponible ou si l'extraction échoue.
+    """
+    try:
+        import pymupdf4llm
+    except ImportError:
+        return None
+
+    try:
+        pages_md = pymupdf4llm.to_markdown(pdf_path, page_chunks=True)
+    except Exception:
+        return None
+
+    source = os.path.basename(pdf_path)
+    doc = fitz.open(pdf_path)
+    pages = []
+    for chunk in pages_md:
+        page_number = chunk.get("metadata", {}).get("page", 0) + 1
+        text = chunk.get("text", "").strip()
+        if not text:
+            continue
+        has_visuals = False
+        if 0 < page_number <= len(doc):
+            has_visuals = _page_has_visuals(doc[page_number - 1])
+        pages.append({
+            "text": text,
+            "page": page_number,
+            "source": source,
+            "has_visuals": has_visuals,
+        })
+    doc.close()
+    return pages or None
+
+
 def extract_text_with_pages(pdf_path: str) -> list[dict]:
-    """Extrait le texte page par page avec métadonnées."""
+    """Extrait le texte page par page avec métadonnées.
+
+    Tente d'abord pymupdf4llm (préserve les formules LaTeX),
+    puis retombe sur PyMuPDF brut si indisponible.
+    """
+    md_pages = _extract_markdown_with_pymupdf4llm(pdf_path)
+    if md_pages is not None:
+        return md_pages
+
+    # Fallback : extraction texte brut via PyMuPDF
     doc = fitz.open(pdf_path)
     pages = []
     for i, page in enumerate(doc):
