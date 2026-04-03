@@ -17,6 +17,7 @@ from database import (
     get_all_mastery,
     get_response_times,
     get_answer_history,
+    get_weak_topics,
 )
 from processor import list_pdfs
 
@@ -368,6 +369,21 @@ st.markdown("""
 
     /* ── Spinner ── */
     .stSpinner > div { border-top-color: #818cf8 !important; }
+
+    /* ── Spaced repetition banner ── */
+    .revision-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        background: rgba(251,191,36,0.08);
+        border: 1px solid rgba(251,191,36,0.2);
+        border-radius: 10px;
+        padding: 0.7rem 1rem;
+        margin: 0.6rem 0 0.4rem 0;
+    }
+    .revision-icon { font-size: 1rem; }
+    .revision-text { font-size: 0.85rem; color: #b0b0b0; }
+    .revision-text strong { color: #fbbf24; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -605,6 +621,39 @@ with tab_interview:
         st.caption(f"Difficulte forcee : {difficulty_label}.")
     if not has_indexed_chapters:
         st.info("Indexez au moins un PDF pour generer des questions a partir de vos supports.")
+
+    # ── Bandeau révision spaced repetition ────────────────────────────────────
+    weak = get_weak_topics(score_threshold=0.50, min_attempts=1)
+    if weak and st.session_state["session_id"] is None:
+        weak_names = [w["topic"] for w in weak]
+        with st.container():
+            st.markdown(
+                '<div class="revision-banner">'
+                '<span class="revision-icon">⚡</span>'
+                f'<span class="revision-text">À revoir : <strong>{", ".join(weak_names)}</strong></span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            cols = st.columns(len(weak_names))
+            for col, w in zip(cols, weak):
+                with col:
+                    if st.button(
+                        f"{w['topic']} ({int(w['best_score']*100)}%)",
+                        key=f"revision_{w['topic']}",
+                        use_container_width=True,
+                        type="secondary",
+                    ):
+                        # Pre-select le topic dans le selectbox via session state
+                        st.session_state["_revision_topic"] = w["topic"]
+                        st.rerun()
+
+    # Appliquer la sélection de révision si elle existe
+    if "_revision_topic" in st.session_state:
+        revision_topic = st.session_state.pop("_revision_topic")
+        topic_idx = TOPICS.index(revision_topic) if revision_topic in TOPICS else None
+        if topic_idx is not None:
+            # Re-render avec le bon topic pré-sélectionné
+            topic = revision_topic
 
     if st.button(
         "Nouvelle question",

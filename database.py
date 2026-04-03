@@ -170,6 +170,20 @@ def _score_to_status(score: float) -> str:
     return "Non abordé"
 
 
+def get_weak_topics(score_threshold: float = 0.50, min_attempts: int = 1) -> list[dict]:
+    """Retourne les topics avec un best_score sous le seuil, triés du plus faible au plus fort."""
+    conn = get_connection()
+    rows = conn.execute(
+        """SELECT topic, best_score, attempts, avg_time_s
+           FROM mastery
+           WHERE best_score < ? AND attempts >= ?
+           ORDER BY best_score ASC""",
+        (score_threshold, min_attempts),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def get_all_mastery() -> list[dict]:
     conn = get_connection()
     rows = conn.execute("SELECT * FROM mastery ORDER BY topic").fetchall()
