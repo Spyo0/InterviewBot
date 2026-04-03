@@ -5,10 +5,12 @@ import os
 import time
 from dotenv import load_dotenv
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
+from course_library import get_course_catalog, get_course_categories, get_course_levels
 from engine import APIError, JeSuisCoachEngine, PROVIDERS
 from database import (
     create_session,
@@ -45,8 +47,8 @@ st.markdown("""
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     .block-container {
-        max-width: 820px;
-        padding-top: 2rem;
+        max-width: 1120px;
+        padding-top: 1.7rem;
         padding-bottom: 2rem;
     }
     header[data-testid="stHeader"] {
@@ -59,75 +61,123 @@ st.markdown("""
 
     /* ── Sidebar nav ── */
     [data-testid="stSidebar"] {
-        background: #080808 !important;
+        background:
+            radial-gradient(circle at top left, rgba(129,140,248,0.12), transparent 30%),
+            linear-gradient(180deg, #0b0b0d 0%, #070709 100%) !important;
         border-right: 1px solid #1a1a1a !important;
     }
     [data-testid="stSidebar"] > div:first-child {
-        padding: 1.4rem 0.8rem 1rem 0.8rem;
+        padding: 1.4rem 0.9rem 1rem 0.9rem;
     }
     /* Nav radio group */
     [data-testid="stSidebar"] .stRadio > div {
-        gap: 2px !important;
+        gap: 0 !important;
         flex-direction: column;
     }
     [data-testid="stSidebar"] .stRadio label {
         display: flex !important;
         align-items: center !important;
-        gap: 0.55rem;
-        padding: 0.55rem 0.85rem !important;
-        border-radius: 8px !important;
-        font-size: 0.875rem !important;
+        gap: 0.45rem;
+        padding: 0.72rem 0.2rem 0.72rem 0.9rem !important;
+        border-radius: 0 !important;
+        border-left: 2px solid transparent !important;
+        font-size: 0.88rem !important;
         font-weight: 500 !important;
-        color: #666 !important;
+        color: #5e5e66 !important;
         cursor: pointer;
-        transition: background 0.12s, color 0.12s;
+        transition: border-color 0.12s, background 0.12s, color 0.12s;
         width: 100%;
     }
     [data-testid="stSidebar"] .stRadio label:hover {
-        background: #111 !important;
-        color: #aaa !important;
+        background: rgba(255,255,255,0.02) !important;
+        color: #b8b8c2 !important;
     }
     [data-testid="stSidebar"] .stRadio label[data-checked="true"] {
-        background: #13131f !important;
-        color: #c7d2fe !important;
+        background: linear-gradient(90deg, rgba(129,140,248,0.12), rgba(129,140,248,0.03) 70%, transparent) !important;
+        border-left: 2px solid #818cf8 !important;
+        color: #e8e8ee !important;
     }
     /* Hide the actual radio circle */
     [data-testid="stSidebar"] .stRadio input[type="radio"] { display: none !important; }
     /* Nav logo */
     .nav-brand {
         display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        padding: 0.2rem 0.85rem 1.4rem 0.85rem;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.25rem 0.85rem 1.2rem 0.2rem;
         border-bottom: 1px solid #1a1a1a;
         margin-bottom: 1rem;
     }
     .nav-logo-box {
-        width: 28px; height: 28px;
-        background: linear-gradient(135deg, #818cf8, #6366f1);
-        border-radius: 7px;
+        width: 34px; height: 34px;
+        background:
+            radial-gradient(circle at 30% 30%, rgba(255,255,255,0.22), transparent 45%),
+            linear-gradient(135deg, #8b93ff, #5964e8);
+        border-radius: 10px;
         display: flex; align-items: center; justify-content: center;
-        font-weight: 700; font-size: 0.85rem; color: #fff;
+        box-shadow: 0 10px 30px rgba(99,102,241,0.28);
+        font-weight: 700; font-size: 0.92rem; color: #fff;
         flex-shrink: 0;
     }
     .nav-title {
-        font-size: 0.9rem;
+        font-size: 1rem;
         font-weight: 700;
-        color: #e5e5e5;
-        letter-spacing: -0.01em;
+        color: #f1f1f4;
+        letter-spacing: -0.02em;
     }
     .nav-subtitle {
-        font-size: 0.68rem;
-        color: #444;
-        margin-top: 0.1rem;
+        font-size: 0.72rem;
+        color: #666772;
+        margin-top: 0.18rem;
+        line-height: 1.4;
     }
     .nav-section-label {
         font-size: 0.65rem;
-        color: #333;
+        color: #383944;
         text-transform: uppercase;
         letter-spacing: 0.1em;
-        padding: 0.8rem 0.85rem 0.3rem;
+        padding: 0.7rem 0 0.45rem 0.2rem;
         font-weight: 600;
+    }
+    .nav-footnote {
+        margin-top: 1rem;
+        padding: 0.9rem 0.2rem 0 0.2rem;
+        border-top: 1px solid #17171c;
+        color: #5b5c65;
+        font-size: 0.76rem;
+        line-height: 1.45;
+    }
+
+    /* ── Page shell ── */
+    .page-shell {
+        margin-bottom: 1.2rem;
+        padding: 1.15rem 1.2rem;
+        border: 1px solid #1a1a1f;
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at top left, rgba(129,140,248,0.10), transparent 35%),
+            linear-gradient(180deg, rgba(17,17,20,0.95), rgba(12,12,14,0.98));
+    }
+    .page-eyebrow {
+        font-size: 0.68rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #73768b;
+        margin-bottom: 0.45rem;
+        font-weight: 600;
+    }
+    .page-title {
+        font-size: 1.55rem;
+        color: #f5f5f8;
+        letter-spacing: -0.03em;
+        font-weight: 700;
+        margin-bottom: 0.3rem;
+    }
+    .page-subtitle {
+        font-size: 0.92rem;
+        color: #9a9ca8;
+        line-height: 1.6;
+        max-width: 820px;
     }
 
     /* ── Header branding ── */
@@ -457,6 +507,93 @@ st.markdown("""
     .revision-icon { font-size: 1rem; }
     .revision-text { font-size: 0.85rem; color: #b0b0b0; }
     .revision-text strong { color: #fbbf24; }
+
+    /* ── Course library ── */
+    .course-card {
+        background: linear-gradient(180deg, #111114 0%, #0d0d10 100%);
+        border: 1px solid #1d1d23;
+        border-radius: 14px;
+        padding: 1rem 1rem 0.95rem;
+        margin-bottom: 0.8rem;
+    }
+    .course-card-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.8rem;
+        margin-bottom: 0.55rem;
+    }
+    .course-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: rgba(129,140,248,0.12);
+        color: #c7d2fe;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.95rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+    .course-title {
+        font-size: 0.96rem;
+        font-weight: 600;
+        color: #ececf1;
+        margin-bottom: 0.12rem;
+    }
+    .course-meta {
+        color: #73768b;
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .course-summary {
+        color: #a8aab7;
+        font-size: 0.84rem;
+        line-height: 1.55;
+        margin: 0.6rem 0 0.8rem;
+    }
+    .course-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-bottom: 0.8rem;
+    }
+    .course-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.18rem 0.5rem;
+        border: 1px solid #23232b;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        color: #8e90a0;
+        background: rgba(255,255,255,0.02);
+    }
+    .course-detail-shell {
+        background: linear-gradient(180deg, #111114 0%, #0d0d10 100%);
+        border: 1px solid #1d1d23;
+        border-radius: 16px;
+        padding: 1.2rem 1.25rem;
+    }
+    .course-detail-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    .course-detail-title {
+        font-size: 1.18rem;
+        font-weight: 700;
+        color: #f5f5f8;
+        letter-spacing: -0.02em;
+    }
+    .course-detail-summary {
+        color: #a6a8b5;
+        font-size: 0.9rem;
+        line-height: 1.65;
+        margin-top: 0.35rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -503,6 +640,9 @@ def init_session_state():
         "_nav_section": "Entretien",
         "_provider_key": os.getenv("LLM_PROVIDER", "groq"),
         "_model_choice": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "_course_query": "",
+        "_course_category": "Toutes",
+        "_course_level": "Tous",
         # Engine
         "engine": None,
         "session_id": None,
@@ -514,6 +654,7 @@ def init_session_state():
         "current_question_source": "",
         "current_question_image_path": None,
         "current_question_image_caption": "",
+        "current_timer_duration": 0,
         "question_start_time": None,
         "session_history": [],
         "questions_asked": [],
@@ -521,6 +662,7 @@ def init_session_state():
         "question_sources": [],
         # Conversation (follow-up)
         "conversation": [],
+        "course_selected_slug": "black_scholes",
         # Mode examen
         "exam_mode": False,
         "exam_questions": [],
@@ -544,7 +686,7 @@ with st.sidebar:
         '<div class="nav-brand">'
         '<div class="nav-logo-box">Q</div>'
         '<div><div class="nav-title">InterviewBot</div>'
-        '<div class="nav-subtitle">Finance Quantitative</div></div>'
+        '<div class="nav-subtitle">Préparation technique en finance quantitative, pilotée par tes supports.</div></div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -554,12 +696,14 @@ with st.sidebar:
         ["Entretien", "Cours", "Configuration", "Dashboard"],
         key="_nav_section",
         label_visibility="collapsed",
-        format_func=lambda x: {
-            "Entretien": "🎤  Entretien",
-            "Cours": "📚  Cours",
-            "Configuration": "⚙️  Configuration",
-            "Dashboard": "📊  Dashboard",
-        }[x],
+        format_func=lambda x: x,
+    )
+    st.markdown(
+        '<div class="nav-footnote">'
+        'Navigation principale à gauche, vues de travail à droite. '
+        'Les paramètres LLM et les PDFs sont regroupés dans <strong>Configuration</strong>.'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
 # Read provider/model from session state (updated in Configuration tab)
@@ -596,32 +740,96 @@ def _session_avg_score() -> float | None:
     return sum(h["score"] for h in hist) / len(hist)
 
 
-# --- Helper: JS timer (no rerun) ---
-def render_timer(duration_s: int = 180):
-    """Inject a JS countdown timer that runs client-side without Streamlit reruns."""
-    st.markdown(f"""
-    <div class="timer-container">
-        <span class="timer-label">Temps restant</span>
-        <span class="timer-display" id="countdown-timer">{duration_s // 60}:{duration_s % 60:02d}</span>
-    </div>
-    <script>
-        (function() {{
-            var total = {duration_s};
-            var el = document.getElementById('countdown-timer');
-            if (!el) return;
-            var iv = setInterval(function() {{
-                total--;
-                if (total <= 0) {{ clearInterval(iv); el.textContent = "0:00"; el.className = "timer-display danger"; return; }}
-                var m = Math.floor(total / 60);
-                var s = total % 60;
-                el.textContent = m + ":" + (s < 10 ? "0" : "") + s;
-                if (total <= 30) el.className = "timer-display danger";
-                else if (total <= 60) el.className = "timer-display warning";
-                else el.className = "timer-display";
-            }}, 1000);
-        }})();
-    </script>
-    """, unsafe_allow_html=True)
+# --- Helper: live timer (client-side, stable across reruns) ---
+def render_timer(duration_s: int, started_at: float | None, scope: str) -> None:
+    """Affiche un vrai compte à rebours client-side basé sur une deadline absolue."""
+    if duration_s <= 0 or started_at is None:
+        return
+
+    deadline_ms = int((started_at + duration_s) * 1000)
+    remaining_s = max(0, int(deadline_ms / 1000 - time.time() + 0.999))
+    minutes, seconds = divmod(remaining_s, 60)
+    timer_id = f"countdown-{scope}-{int(started_at * 1000)}"
+
+    components.html(
+        f"""
+        <style>
+            html, body {{
+                margin: 0;
+                padding: 0;
+                background: transparent;
+            }}
+            .timer-container {{
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 0.75rem;
+                padding: 0.7rem 1rem;
+                background: #111;
+                border: 1px solid #1e1e1e;
+                border-radius: 10px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }}
+            .timer-label {{
+                font-size: 0.78rem;
+                color: #555;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+            }}
+            .timer-display {{
+                font-size: 2rem;
+                font-weight: 700;
+                color: #e5e5e5;
+                font-variant-numeric: tabular-nums;
+                line-height: 1;
+            }}
+            .timer-display.warning {{ color: #fbbf24; }}
+            .timer-display.danger {{
+                color: #f87171;
+                animation: pulse 1s infinite;
+            }}
+            @keyframes pulse {{
+                50% {{ opacity: 0.5; }}
+            }}
+        </style>
+        <div class="timer-container">
+            <span class="timer-label">Temps restant</span>
+            <span class="timer-display" id="{timer_id}">{minutes}:{seconds:02d}</span>
+        </div>
+        <script>
+            const deadlineMs = {deadline_ms};
+            const timerEl = document.getElementById("{timer_id}");
+            let intervalId = null;
+
+            function updateTimer() {{
+                if (!timerEl) {{
+                    return;
+                }}
+
+                const remaining = Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000));
+                const minutes = Math.floor(remaining / 60);
+                const seconds = remaining % 60;
+
+                timerEl.textContent = `${{minutes}}:${{String(seconds).padStart(2, "0")}}`;
+                timerEl.className = "timer-display";
+
+                if (remaining <= 30) {{
+                    timerEl.classList.add("danger");
+                }} else if (remaining <= 60) {{
+                    timerEl.classList.add("warning");
+                }}
+
+                if (remaining === 0 && intervalId !== null) {{
+                    clearInterval(intervalId);
+                }}
+            }}
+
+            updateTimer();
+            intervalId = window.setInterval(updateTimer, 250);
+        </script>
+        """,
+        height=86,
+    )
 
 
 def render_markdown_panel(title: str, content: str) -> None:
@@ -656,10 +864,33 @@ def render_support_panel(source_ref: str = "", image_path: str | None = None, im
             )
 
 
+def render_page_shell(title: str, subtitle: str, eyebrow: str) -> None:
+    """Affiche un header compact et plus éditorial pour chaque vue principale."""
+    st.markdown(
+        f'<div class="page-shell">'
+        f'<div class="page-eyebrow">{eyebrow}</div>'
+        f'<div class="page-title">{title}</div>'
+        f'<div class="page-subtitle">{subtitle}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_course_chips(tags: list[str] | tuple[str, ...], limit: int | None = None) -> str:
+    """Construit les badges de tags pour les cartes et fiches de cours."""
+    visible_tags = tags if limit is None else tags[:limit]
+    return "".join(f'<span class="course-chip">{tag}</span>' for tag in visible_tags)
+
+
 # ===================== SECTION: ENTRETIEN =====================
 EXAM_COUNT = 10
 
 if nav_section == "Entretien":
+    render_page_shell(
+        title="Simulations d'entretien",
+        subtitle="Travaille en mode question unique ou enchaîne un examen complet. Le thème guide la recherche, puis le moteur s'appuie sur les chapitres PDF les plus pertinents.",
+        eyebrow="Entretien",
+    )
     tab_interview, tab_exam = st.tabs(["Entretien", "Examens"])
 
     with tab_interview:
@@ -763,6 +994,7 @@ if nav_section == "Entretien":
                 st.session_state["current_question_source"] = question_payload.get("display_source_ref", "")
                 st.session_state["current_question_image_path"] = question_payload.get("image_path")
                 st.session_state["current_question_image_caption"] = question_payload.get("image_caption", "")
+                st.session_state["current_timer_duration"] = timer_duration
                 st.session_state["question_start_time"] = time.time()
                 st.session_state["questions_asked"].append(question_payload["question"])
                 st.session_state["question_types_asked"].append(question_payload.get("question_type", "application"))
@@ -771,8 +1003,11 @@ if nav_section == "Entretien":
         # Display question
         if st.session_state["current_question"]:
             # Timer
-            if timer_duration > 0:
-                render_timer(timer_duration)
+            render_timer(
+                st.session_state["current_timer_duration"],
+                st.session_state["question_start_time"],
+                "interview",
+            )
 
             render_markdown_panel("Question", st.session_state["current_question"])
             st.caption(f"Difficulte de la question : {st.session_state['current_question_difficulty']}")
@@ -955,6 +1190,8 @@ if nav_section == "Entretien":
                 st.session_state["current_question_source"] = ""
                 st.session_state["current_question_image_path"] = None
                 st.session_state["current_question_image_caption"] = ""
+                st.session_state["current_timer_duration"] = 0
+                st.session_state["question_start_time"] = None
                 st.session_state["session_history"] = []
                 st.session_state["questions_asked"] = []
                 st.session_state["question_types_asked"] = []
@@ -1032,7 +1269,7 @@ if nav_section == "Entretien":
             st.markdown(f'<div class="section-title">Question {idx + 1} / {total}</div>', unsafe_allow_html=True)
 
             # Timer
-            render_timer(180)
+            render_timer(180, st.session_state["question_start_time"], f"exam-{idx}")
 
             # Question
             current_q = st.session_state["exam_questions"][idx]
@@ -1222,6 +1459,11 @@ if nav_section == "Entretien":
 
 # ===================== SECTION: CONFIGURATION =====================
 if nav_section == "Configuration":
+    render_page_shell(
+        title="Configuration du moteur",
+        subtitle="Choisis le provider, le modèle et les supports PDF utilisés par le moteur de génération. Toute la configuration opérationnelle est regroupée ici.",
+        eyebrow="Configuration",
+    )
     tab_settings, tab_pdf = st.tabs(["Paramètres", "PDF"])
 
     with tab_settings:
@@ -1303,89 +1545,139 @@ if nav_section == "Configuration":
 
 # ===================== SECTION: COURS =====================
 if nav_section == "Cours":
-    MASTERY_SHEETS_DIR = os.path.join(os.path.dirname(__file__), "data", "mastery_sheets")
+    render_page_shell(
+        title="Bibliothèque de révision",
+        subtitle="Une base plus dense de sujets quant pour réviser vite avant entretien : intuition, formules, pièges recruteurs et angles de discussion.",
+        eyebrow="Cours",
+    )
 
-    SHEET_META = {
-        "black_scholes.md":       {"title": "Black-Scholes",            "icon": "📐", "tag": "Pricing"},
-        "ito_lemma.md":           {"title": "Lemme d'Itô",              "icon": "∂",  "tag": "Calcul Stochastique"},
-        "greeks.md":              {"title": "Les Grecques",              "icon": "Δ",  "tag": "Risk Management"},
-        "monte_carlo.md":         {"title": "Monte Carlo",              "icon": "🎲", "tag": "Simulation"},
-        "risk_neutral_pricing.md":{"title": "Pricing Risk-Neutral",     "icon": "⚖️", "tag": "Théorie"},
-    }
+    available_sheets = get_course_catalog()
+    category_options = ["Toutes", *get_course_categories()]
+    level_options = ["Tous", *get_course_levels()]
 
-    def _load_sheets(sheets_dir: str, meta: dict) -> list[dict]:
-        sheets = []
-        if not os.path.exists(sheets_dir):
-            return sheets
-        for fname, info in meta.items():
-            fpath = os.path.join(sheets_dir, fname)
-            if not os.path.exists(fpath):
-                continue
-            with open(fpath, "r", encoding="utf-8") as f:
-                content = f.read()
-            sheets.append({**info, "fname": fname, "content": content})
-        return sheets
-
-    available_sheets = _load_sheets(MASTERY_SHEETS_DIR, SHEET_META)
-
-    if not available_sheets:
-        st.info("Aucune fiche de maîtrise trouvée dans data/mastery_sheets/.")
-    else:
+    stat_col_1, stat_col_2, stat_col_3 = st.columns(3)
+    with stat_col_1:
         st.markdown(
-            '<p style="color:#555;font-size:0.85rem;margin-bottom:1rem;">'
-            'Fiches synthétiques — théorie, limites du modèle et pièges recruteurs.</p>',
+            f'<div class="metric-card"><div class="value">{len(available_sheets)}</div>'
+            f'<div class="label">Fiches disponibles</div></div>',
+            unsafe_allow_html=True,
+        )
+    with stat_col_2:
+        st.markdown(
+            f'<div class="metric-card"><div class="value">{len(get_course_categories())}</div>'
+            f'<div class="label">Domaines</div></div>',
+            unsafe_allow_html=True,
+        )
+    with stat_col_3:
+        st.markdown(
+            f'<div class="metric-card"><div class="value">{len(get_course_levels())}</div>'
+            f'<div class="label">Niveaux</div></div>',
             unsafe_allow_html=True,
         )
 
-        # Card grid selector
-        cols = st.columns(len(available_sheets))
-        if "cours_selected" not in st.session_state:
-            st.session_state.cours_selected = available_sheets[0]["fname"]
+    st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
 
-        for col, sheet in zip(cols, available_sheets):
-            with col:
-                is_active = st.session_state.cours_selected == sheet["fname"]
-                border_color = "#818cf8" if is_active else "#1e1e1e"
-                bg_color = "#0f0f1a" if is_active else "#111"
+    course_query = st.text_input(
+        "Recherche",
+        key="_course_query",
+        placeholder="Ex: Ito, vol implicite, process de Poisson...",
+        label_visibility="collapsed",
+    )
+    filter_col_1, filter_col_2 = st.columns(2)
+    with filter_col_1:
+        selected_category = st.selectbox(
+            "Catégorie",
+            category_options,
+            key="_course_category",
+        )
+    with filter_col_2:
+        selected_level = st.selectbox(
+            "Niveau",
+            level_options,
+            key="_course_level",
+        )
+
+    normalized_query = course_query.strip().lower()
+    filtered_sheets = []
+    for sheet in available_sheets:
+        searchable_text = " ".join([sheet.title, sheet.summary, sheet.category, *sheet.tags]).lower()
+        if normalized_query and normalized_query not in searchable_text:
+            continue
+        if selected_category != "Toutes" and sheet.category != selected_category:
+            continue
+        if selected_level != "Tous" and sheet.level != selected_level:
+            continue
+        filtered_sheets.append(sheet)
+
+    if not filtered_sheets:
+        st.info("Aucune fiche ne correspond à ces filtres.")
+    else:
+        valid_slugs = {sheet.slug for sheet in filtered_sheets}
+        if st.session_state["course_selected_slug"] not in valid_slugs:
+            st.session_state["course_selected_slug"] = filtered_sheets[0].slug
+
+        library_col, detail_col = st.columns([0.95, 1.85], gap="large")
+
+        with library_col:
+            st.markdown('<div class="section-title">Catalogue</div>', unsafe_allow_html=True)
+            st.caption(f"{len(filtered_sheets)} sujet(s) disponibles")
+
+            for sheet in filtered_sheets:
                 st.markdown(
-                    f'<div style="border:1px solid {border_color};border-radius:10px;'
-                    f'background:{bg_color};padding:12px 10px;text-align:center;'
-                    f'cursor:pointer;transition:all .2s;">'
-                    f'<div style="font-size:1.4rem">{sheet["icon"]}</div>'
-                    f'<div style="font-size:0.75rem;color:#818cf8;margin:4px 0 2px">{sheet["tag"]}</div>'
-                    f'<div style="font-size:0.82rem;color:#ccc;font-weight:500">{sheet["title"]}</div>'
+                    f'<div class="course-card">'
+                    f'<div class="course-card-top">'
+                    f'<div style="display:flex; gap:0.8rem;">'
+                    f'<span class="course-icon">{sheet.icon}</span>'
+                    f'<div>'
+                    f'<div class="course-title">{sheet.title}</div>'
+                    f'<div class="course-meta">{sheet.category} · {sheet.level} · {sheet.duration}</div>'
+                    f'</div>'
+                    f'</div>'
+                    f'</div>'
+                    f'<div class="course-summary">{sheet.summary}</div>'
+                    f'<div class="course-chip-row">{render_course_chips(sheet.tags, limit=4)}</div>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
                 if st.button(
-                    "Ouvrir" if not is_active else "✓ Ouvert",
-                    key=f"cours_btn_{sheet['fname']}",
+                    "Ouvrir la fiche" if st.session_state["course_selected_slug"] != sheet.slug else "Fiche ouverte",
+                    key=f"course_open_{sheet.slug}",
                     use_container_width=True,
+                    type="secondary" if st.session_state["course_selected_slug"] != sheet.slug else "primary",
                 ):
-                    st.session_state.cours_selected = sheet["fname"]
+                    st.session_state["course_selected_slug"] = sheet.slug
                     st.rerun()
 
-        st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
-
-        # Display selected sheet
-        selected = next((s for s in available_sheets if s["fname"] == st.session_state.cours_selected), available_sheets[0])
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;">'
-            f'<span style="font-size:1.6rem">{selected["icon"]}</span>'
-            f'<div>'
-            f'<span style="font-size:0.72rem;color:#818cf8;letter-spacing:.08em;text-transform:uppercase">{selected["tag"]}</span><br>'
-            f'<span style="font-size:1.1rem;font-weight:600;color:#e5e5e5">{selected["title"]}</span>'
-            f'</div></div>',
-            unsafe_allow_html=True,
+        selected_sheet = next(
+            sheet for sheet in available_sheets if sheet.slug == st.session_state["course_selected_slug"]
         )
-
-        # Render markdown content (LaTeX rendered by Streamlit natively)
-        st.markdown(selected["content"])
+        with detail_col:
+            st.markdown(
+                f'<div class="course-detail-shell">'
+                f'<div class="course-detail-head">'
+                f'<span class="course-icon" style="width:42px;height:42px;font-size:1rem;">{selected_sheet.icon}</span>'
+                f'<div>'
+                f'<div class="course-detail-title">{selected_sheet.title}</div>'
+                f'<div class="course-meta">{selected_sheet.category} · {selected_sheet.level} · {selected_sheet.duration}</div>'
+                f'<div class="course-detail-summary">{selected_sheet.summary}</div>'
+                f'</div>'
+                f'</div>'
+                f'<div class="course-chip-row">{render_course_chips(selected_sheet.tags)}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(selected_sheet.content)
 
 
 
 # ===================== SECTION: DASHBOARD =====================
 if nav_section == "Dashboard":
+    render_page_shell(
+        title="Pilotage de progression",
+        subtitle="Suis tes performances par thème, difficulté et type de question pour repérer rapidement les angles à retravailler.",
+        eyebrow="Dashboard",
+    )
+
     # Summary cards
     mastery_data = get_all_mastery()
     mastery_map = {m["topic"]: m for m in mastery_data} if mastery_data else {}
