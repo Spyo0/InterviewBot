@@ -9,7 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from engine import JeSuisCoachEngine, PROVIDERS
+from engine import APIError, JeSuisCoachEngine, PROVIDERS
 from database import (
     create_session,
     save_answer,
@@ -629,6 +629,8 @@ with tab_interview:
                     recent_questions=st.session_state["questions_asked"],
                     recent_question_types=st.session_state["question_types_asked"],
                 )
+        except APIError as exc:
+            st.error(f"Erreur API : {exc}")
         except ValueError as exc:
             st.warning(str(exc))
         else:
@@ -673,13 +675,17 @@ with tab_interview:
             else:
                 elapsed = time.time() - st.session_state["question_start_time"]
 
-                with st.spinner("Evaluation..."):
-                    evaluation = engine.evaluate_answer(
-                        st.session_state["current_question"],
-                        answer,
-                        st.session_state["current_question_topic"] or topic,
-                        context=st.session_state["current_question_context"],
-                    )
+                try:
+                    with st.spinner("Evaluation..."):
+                        evaluation = engine.evaluate_answer(
+                            st.session_state["current_question"],
+                            answer,
+                            st.session_state["current_question_topic"] or topic,
+                            context=st.session_state["current_question_context"],
+                        )
+                except APIError as exc:
+                    st.error(f"Erreur API lors de l'évaluation : {exc}")
+                    st.stop()
 
                 score = evaluation["score"]
                 feedback = evaluation["feedback"]

@@ -1,6 +1,7 @@
 """Logique RAG : LangChain + ChromaDB + providers cloud (Groq / HuggingFace)."""
 
 import json
+import logging
 import os
 import re
 from collections import Counter
@@ -11,6 +12,15 @@ import chromadb
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+)
+
+logger = logging.getLogger(__name__)
 
 from processor import get_page_preview, process_pdf, list_pdfs
 
@@ -117,6 +127,26 @@ TYPE_PREFIX_PATTERNS = (
     "type:",
     "question :",
     "question:",
+)
+
+
+class APIError(Exception):
+    """Erreur remontée quand le provider LLM ou embeddings est injoignable."""
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Retourne True pour les erreurs transitoires (rate limit, timeout, 5xx)."""
+    msg = str(exc).lower()
+    retryable_keywords = ("rate limit", "429", "503", "502", "timeout", "connection", "overloaded")
+    return any(keyword in msg for keyword in retryable_keywords)
+
+
+_llm_retry = retry(
+    retry=retry_if_exception_type(Exception),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=20),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
 )
 
 
@@ -608,11 +638,14 @@ Question à réécrire :
         ])
 
         chain = prompt | self.llm | StrOutputParser()
-        repaired_question = chain.invoke({
-            "context": "",
-            "topic": topic,
-            "question": question,
-        })
+        try:
+            repaired_question = _llm_retry(chain.invoke)({
+                "context": "",
+                "topic": topic,
+                "question": question,
+            })
+        except Exception:
+            return question
         return self._normalize_question(repaired_question)
 
     def generate_question(
@@ -672,16 +705,23 @@ QUESTION: [une seule question technique précise, sans donner la réponse ni éc
         question = ""
 
         for attempt in range(MAX_GENERATION_ATTEMPTS):
-            raw_question = chain.invoke({
-                "context": context_block,
-                "topic": topic,
-                "question_type": question_type,
-                "question_type_label": QUESTION_TYPE_LABELS[question_type],
-                "question_type_instruction": QUESTION_TYPE_INSTRUCTIONS[question_type],
-                "difficulty_block": difficulty_block,
-                "history_block": f"\nQuestions déjà posées dans cette session :\n{history}" if history else "",
-                "retry_guidance": retry_guidance,
-            })
+            try:
+                raw_question = _llm_retry(chain.invoke)({
+                    "context": context_block,
+                    "topic": topic,
+                    "question_type": question_type,
+                    "question_type_label": QUESTION_TYPE_LABELS[question_type],
+                    "question_type_instruction": QUESTION_TYPE_INSTRUCTIONS[question_type],
+                    "difficulty_block": difficulty_block,
+                    "history_block": f"\nQuestions déjà posées dans cette session :\n{history}" if history else "",
+                    "retry_guidance": retry_guidance,
+                })
+            except Exception as exc:
+                raise APIError(
+                    f"Le provider LLM ({self.provider}) est injoignable après 3 tentatives. "
+                    f"Vérifiez votre clé API et votre connexion.\nDétail : {exc}"
+                ) from exc
+
             parsed_candidate = self._parse_generated_question(raw_question, fallback_question_type=question_type)
             question_type = parsed_candidate["question_type"]
             question = self._normalize_question(parsed_candidate["question"])
@@ -750,11 +790,17 @@ QUESTION: [une seule question technique précise, sans donner la réponse ni éc
         ])
 
         chain = prompt | self.llm | StrOutputParser()
-        raw = chain.invoke({
-            "question": question,
-            "answer": answer,
-            "context": reference_context if reference_context else "Pas de contexte de référence disponible.",
-        })
+        try:
+            raw = _llm_retry(chain.invoke)({
+                "question": question,
+                "answer": answer,
+                "context": reference_context if reference_context else "Pas de contexte de référence disponible.",
+            })
+        except Exception as exc:
+            raise APIError(
+                f"Le provider LLM ({self.provider}) est injoignable lors de l'évaluation. "
+                f"Vérifiez votre clé API et votre connexion.\nDétail : {exc}"
+            ) from exc
 
         return self._parse_structured_evaluation(raw)
 
