@@ -69,36 +69,24 @@ st.markdown("""
     [data-testid="stSidebar"] > div:first-child {
         padding: 1.4rem 0.9rem 1rem 0.9rem;
     }
-    /* Nav radio group */
-    [data-testid="stSidebar"] .stRadio > div {
-        gap: 0 !important;
-        flex-direction: column;
+    /* Nav select */
+    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div {
+        background:
+            linear-gradient(180deg, rgba(18,18,22,0.98), rgba(12,12,15,0.98)) !important;
+        border: 1px solid #23232b !important;
+        border-radius: 12px !important;
+        min-height: 48px !important;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
     }
-    [data-testid="stSidebar"] .stRadio label {
-        display: flex !important;
-        align-items: center !important;
-        gap: 0.45rem;
-        padding: 0.72rem 0.2rem 0.72rem 0.9rem !important;
-        border-radius: 0 !important;
-        border-left: 2px solid transparent !important;
-        font-size: 0.88rem !important;
-        font-weight: 500 !important;
-        color: #5e5e66 !important;
-        cursor: pointer;
-        transition: border-color 0.12s, background 0.12s, color 0.12s;
-        width: 100%;
+    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div:hover {
+        border-color: #2f3040 !important;
     }
-    [data-testid="stSidebar"] .stRadio label:hover {
-        background: rgba(255,255,255,0.02) !important;
-        color: #b8b8c2 !important;
+    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] * {
+        color: #ececf1 !important;
     }
-    [data-testid="stSidebar"] .stRadio label[data-checked="true"] {
-        background: linear-gradient(90deg, rgba(129,140,248,0.12), rgba(129,140,248,0.03) 70%, transparent) !important;
-        border-left: 2px solid #818cf8 !important;
-        color: #e8e8ee !important;
+    [data-testid="stSidebar"] .stSelectbox svg {
+        color: #9094c7 !important;
     }
-    /* Hide the actual radio circle */
-    [data-testid="stSidebar"] .stRadio input[type="radio"] { display: none !important; }
     /* Nav logo */
     .nav-brand {
         display: flex;
@@ -710,12 +698,11 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown('<div class="nav-section-label">Navigation</div>', unsafe_allow_html=True)
-    nav_section = st.radio(
-        "Navigation",
+    nav_section = st.selectbox(
+        "Section",
         ["Entretien", "Cours", "Configuration", "Dashboard"],
         key="_nav_section",
         label_visibility="collapsed",
-        format_func=lambda x: x,
     )
     st.markdown(
         '<div class="nav-footnote">'
