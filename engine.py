@@ -780,6 +780,44 @@ QUESTION: [une seule question technique précise, sans donner la réponse ni éc
             **visual_support,
         }
 
+    def generate_followup(
+        self,
+        topic: str,
+        conversation: list[dict],
+        context: str = "",
+    ) -> str:
+        """Génère une question de relance basée sur l'échange précédent.
+
+        `conversation` est une liste de dicts {"role": "question"|"answer", "content": str}.
+        """
+        history_lines = []
+        for turn in conversation[-4:]:
+            prefix = "Q:" if turn["role"] == "question" else "R:"
+            history_lines.append(f"{prefix} {turn['content']}")
+        history_text = "\n".join(history_lines)
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_PROMPT),
+            ("human", """Tu suis un entretien en cours sur le thème : {topic}
+
+Voici les derniers échanges :
+{history}
+
+Pose UNE question de relance courte et précise :
+- Si la réponse était correcte : approfondis ou déplace-toi vers un cas limite.
+- Si la réponse était incomplète : cible le point manquant précis sans répéter la question.
+- Si la réponse était incorrecte : reformule pour guider sans donner la réponse.
+
+Ne répète pas la question précédente. Pose une seule question de suivi."""),
+        ])
+
+        chain = prompt | self.llm | StrOutputParser()
+        return chain.invoke({
+            "context": f"\nContexte de référence :\n{context}" if context else "",
+            "topic": topic,
+            "history": history_text,
+        }).strip()
+
     def evaluate_answer(self, question: str, answer: str, topic: str, context: str = "") -> dict:
         """Évalue la réponse de l'utilisateur."""
         reference_context = context or self.search_context(question)
