@@ -10,7 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 
-from course_library import get_course_catalog, get_course_categories, get_course_levels
+from course_library import get_course_catalog, get_course_categories, get_course_levels, get_course_tracks
 from engine import APIError, JeSuisCoachEngine, PROVIDERS
 from database import (
     create_session,
@@ -593,6 +593,25 @@ st.markdown("""
         font-size: 0.9rem;
         line-height: 1.65;
         margin-top: 0.35rem;
+    }
+    .track-card {
+        height: 100%;
+        background: linear-gradient(180deg, #111114 0%, #0d0d10 100%);
+        border: 1px solid #1d1d23;
+        border-radius: 14px;
+        padding: 1rem 1.05rem;
+    }
+    .track-title {
+        color: #f2f2f6;
+        font-size: 0.95rem;
+        font-weight: 700;
+        margin-bottom: 0.35rem;
+    }
+    .track-description {
+        color: #9fa2b1;
+        font-size: 0.83rem;
+        line-height: 1.55;
+        margin-bottom: 0.7rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1554,6 +1573,7 @@ if nav_section == "Cours":
     available_sheets = get_course_catalog()
     category_options = ["Toutes", *get_course_categories()]
     level_options = ["Tous", *get_course_levels()]
+    course_tracks = get_course_tracks()
 
     stat_col_1, stat_col_2, stat_col_3 = st.columns(3)
     with stat_col_1:
@@ -1574,6 +1594,27 @@ if nav_section == "Cours":
             f'<div class="label">Niveaux</div></div>',
             unsafe_allow_html=True,
         )
+
+    st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="section-title">Parcours suggérés</div>', unsafe_allow_html=True)
+    track_columns = st.columns(len(course_tracks))
+    slug_to_sheet = {sheet.slug: sheet for sheet in available_sheets}
+    for column, track in zip(track_columns, course_tracks):
+        with column:
+            track_tags = "".join(
+                f'<span class="course-chip">{slug_to_sheet[topic_slug].title}</span>'
+                for topic_slug in track.topics
+                if topic_slug in slug_to_sheet
+            )
+            st.markdown(
+                f'<div class="track-card">'
+                f'<div class="track-title">{track.title}</div>'
+                f'<div class="track-description">{track.description}</div>'
+                f'<div class="course-chip-row">{track_tags}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
 

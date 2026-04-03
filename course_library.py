@@ -16,6 +16,14 @@ class CourseSheet:
     content: str
 
 
+@dataclass(frozen=True)
+class CourseTrack:
+    slug: str
+    title: str
+    description: str
+    topics: tuple[str, ...]
+
+
 def _bullet_section(title: str, items: list[str]) -> str:
     return f"### {title}\n" + "\n".join(f"- {item}" for item in items)
 
@@ -767,6 +775,28 @@ COURSE_CATALOG: tuple[CourseSheet, ...] = (
 )
 
 
+COURSE_TRACKS: tuple[CourseTrack, ...] = (
+    CourseTrack(
+        slug="quant_core",
+        title="Core quant",
+        description="Le socle à maîtriser avant un entretien généraliste : diffusion, pricing et sens des hypothèses.",
+        topics=("brownian_motion", "ito_lemma", "risk_neutral_pricing", "binomial_trees", "black_scholes"),
+    ),
+    CourseTrack(
+        slug="volatility_focus",
+        title="Volatilité et smile",
+        description="Un parcours ciblé pour les questions de desk derivs, market making et modélisation du smile.",
+        topics=("greeks", "implied_volatility", "local_vs_stochastic_vol", "sabr_smile", "monte_carlo"),
+    ),
+    CourseTrack(
+        slug="rates_credit",
+        title="Rates / credit",
+        description="Pour élargir la préparation aux questions fixed income, swaps, courbes et risque de défaut.",
+        topics=("interest_rate_curves", "swaps_and_swap_rate", "duration_convexity", "credit_intensity_models"),
+    ),
+)
+
+
 def get_course_catalog() -> list[CourseSheet]:
     return list(COURSE_CATALOG)
 
@@ -777,3 +807,7 @@ def get_course_categories() -> list[str]:
 
 def get_course_levels() -> list[str]:
     return sorted({sheet.level for sheet in COURSE_CATALOG}, key=lambda level: ["Fondamental", "Intermédiaire", "Élevé"].index(level))
+
+
+def get_course_tracks() -> list[CourseTrack]:
+    return list(COURSE_TRACKS)
