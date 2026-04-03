@@ -69,23 +69,36 @@ st.markdown("""
     [data-testid="stSidebar"] > div:first-child {
         padding: 1.4rem 0.9rem 1rem 0.9rem;
     }
-    /* Nav select */
-    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div {
-        background:
-            linear-gradient(180deg, rgba(18,18,22,0.98), rgba(12,12,15,0.98)) !important;
-        border: 1px solid #23232b !important;
-        border-radius: 12px !important;
-        min-height: 48px !important;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+    /* Nav list */
+    [data-testid="stSidebar"] .stRadio > div {
+        gap: 0.15rem !important;
+        flex-direction: column;
     }
-    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] > div:hover {
-        border-color: #2f3040 !important;
+    [data-testid="stSidebar"] .stRadio label {
+        display: flex !important;
+        align-items: center !important;
+        width: 100%;
+        min-height: 42px;
+        padding: 0.55rem 0.15rem 0.55rem 0.85rem !important;
+        border-radius: 10px !important;
+        border: 1px solid transparent !important;
+        font-size: 0.88rem !important;
+        font-weight: 500 !important;
+        color: #747784 !important;
+        transition: color 0.12s, background 0.12s, border-color 0.12s;
     }
-    [data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] * {
-        color: #ececf1 !important;
+    [data-testid="stSidebar"] .stRadio label:hover {
+        background: rgba(255,255,255,0.025) !important;
+        color: #c2c4cf !important;
     }
-    [data-testid="stSidebar"] .stSelectbox svg {
-        color: #9094c7 !important;
+    [data-testid="stSidebar"] .stRadio label[data-checked="true"] {
+        background: linear-gradient(90deg, rgba(129,140,248,0.13), rgba(129,140,248,0.05) 65%, transparent) !important;
+        border-color: rgba(129,140,248,0.18) !important;
+        color: #f0f1f7 !important;
+        box-shadow: inset 2px 0 0 #818cf8;
+    }
+    [data-testid="stSidebar"] .stRadio input[type="radio"] {
+        display: none !important;
     }
     /* Nav logo */
     .nav-brand {
@@ -698,11 +711,12 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown('<div class="nav-section-label">Navigation</div>', unsafe_allow_html=True)
-    nav_section = st.selectbox(
-        "Section",
+    nav_section = st.radio(
+        "Navigation",
         ["Entretien", "Cours", "Configuration", "Dashboard"],
         key="_nav_section",
         label_visibility="collapsed",
+        format_func=lambda x: x,
     )
     st.markdown(
         '<div class="nav-footnote">'
