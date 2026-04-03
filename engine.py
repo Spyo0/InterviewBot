@@ -28,6 +28,7 @@ load_dotenv()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CHROMA_DIR = os.path.join(DATA_DIR, "chromadb")
+MASTERY_SHEETS_DIR = os.path.join(DATA_DIR, "mastery_sheets")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 VALIDATION_THRESHOLD = float(os.getenv("VALIDATION_THRESHOLD", "0.70"))
 MAX_GENERATION_ATTEMPTS = int(os.getenv("MAX_GENERATION_ATTEMPTS", "3"))
@@ -334,10 +335,68 @@ class JeSuisCoachEngine:
 
         return "\n\n---\n\n".join(context_parts)
 
+    def _search_mastery_sheets(self, query: str, n_results: int = 2) -> list[dict]:
+        """Recherche prioritaire dans les Fiches de Maîtrise par correspondance de mots-clés."""
+        if not os.path.exists(MASTERY_SHEETS_DIR):
+            return []
+
+        query_words = set(re.sub(r"[^\w\s]", " ", query.lower()).split())
+        stop_words = {"de", "du", "le", "la", "les", "un", "une", "des", "en", "et", "ou", "est",
+                      "que", "qui", "par", "sur", "pour", "dans", "avec", "il", "si", "au", "aux"}
+        query_words -= stop_words
+
+        candidates = []
+        for fname in os.listdir(MASTERY_SHEETS_DIR):
+            if not fname.endswith(".md"):
+                continue
+            fpath = os.path.join(MASTERY_SHEETS_DIR, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except OSError:
+                continue
+
+            content_lower = content.lower()
+            score = sum(1 for w in query_words if w in content_lower)
+            if score > 0:
+                sheet_name = fname.replace(".md", "").replace("_", " ").title()
+                candidates.append({
+                    "text": content,
+                    "score": score,
+                    "metadata": {
+                        "source": fname,
+                        "doc_type": "mastery_sheet",
+                        "chapter": sheet_name,
+                        "page": "—",
+                    },
+                    "source_ref": f"📋 Fiche de Maîtrise : {sheet_name}",
+                })
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        return candidates[:n_results]
+
+    def _build_mastery_context_block(self, sheets: list[dict]) -> str:
+        """Construit le bloc de contexte pour les fiches de maîtrise."""
+        if not sheets:
+            return ""
+        parts = []
+        for sheet in sheets:
+            ref = f"[{sheet['source_ref']}]"
+            parts.append(f"{ref}\n{sheet['text']}")
+        return "\n\n---\n\n".join(parts)
+
     def search_context(self, query: str, n_results: int = 3, chapter_filter: str = None) -> str:
-        """Recherche le contexte pertinent dans ChromaDB."""
-        matches = self._query_context_matches(query, n_results=n_results, chapter_filter=chapter_filter)
-        return self._build_context_block(matches)
+        """Recherche le contexte : Fiches de Maîtrise en priorité, puis PDFs."""
+        # Priorité 1 : Fiches de maîtrise (savoir structuré + limites + pièges)
+        mastery_sheets = self._search_mastery_sheets(query, n_results=1)
+        mastery_block = self._build_mastery_context_block(mastery_sheets)
+
+        # Priorité 2 : Chunks PDF (source brute indexée)
+        pdf_matches = self._query_context_matches(query, n_results=n_results, chapter_filter=chapter_filter)
+        pdf_block = self._build_context_block(pdf_matches)
+
+        blocks = [b for b in [mastery_block, pdf_block] if b]
+        return "\n\n---\n\n".join(blocks)
 
     @staticmethod
     def _resolve_difficulty(avg_score: Optional[float], difficulty_level: Optional[str]) -> tuple[str, str]:
