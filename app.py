@@ -591,7 +591,7 @@ def render_support_panel(source_ref: str = "", image_path: str | None = None, im
 
 
 # --- Tabs ---
-tab_interview, tab_exam, tab_pdf, tab_dashboard = st.tabs(["Entretien", "Examen", "PDF", "Dashboard"])
+tab_interview, tab_exam, tab_pdf, tab_cours, tab_dashboard = st.tabs(["Entretien", "Examen", "PDF", "Cours", "Dashboard"])
 
 
 # ===================== TAB: ENTRETIEN =====================
@@ -1206,6 +1206,88 @@ with tab_pdf:
                 f'<div class="pdf-item"><span class="pdf-dot"></span>{ch}</div>',
                 unsafe_allow_html=True,
             )
+
+
+# ===================== TAB: COURS =====================
+with tab_cours:
+    MASTERY_SHEETS_DIR = os.path.join(os.path.dirname(__file__), "data", "mastery_sheets")
+
+    SHEET_META = {
+        "black_scholes.md":       {"title": "Black-Scholes",            "icon": "📐", "tag": "Pricing"},
+        "ito_lemma.md":           {"title": "Lemme d'Itô",              "icon": "∂",  "tag": "Calcul Stochastique"},
+        "greeks.md":              {"title": "Les Grecques",              "icon": "Δ",  "tag": "Risk Management"},
+        "monte_carlo.md":         {"title": "Monte Carlo",              "icon": "🎲", "tag": "Simulation"},
+        "risk_neutral_pricing.md":{"title": "Pricing Risk-Neutral",     "icon": "⚖️", "tag": "Théorie"},
+    }
+
+    def _load_sheets(sheets_dir: str, meta: dict) -> list[dict]:
+        sheets = []
+        if not os.path.exists(sheets_dir):
+            return sheets
+        for fname, info in meta.items():
+            fpath = os.path.join(sheets_dir, fname)
+            if not os.path.exists(fpath):
+                continue
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+            sheets.append({**info, "fname": fname, "content": content})
+        return sheets
+
+    available_sheets = _load_sheets(MASTERY_SHEETS_DIR, SHEET_META)
+
+    if not available_sheets:
+        st.info("Aucune fiche de maîtrise trouvée dans data/mastery_sheets/.")
+    else:
+        st.markdown(
+            '<p style="color:#555;font-size:0.85rem;margin-bottom:1rem;">'
+            'Fiches synthétiques — théorie, limites du modèle et pièges recruteurs.</p>',
+            unsafe_allow_html=True,
+        )
+
+        # Card grid selector
+        cols = st.columns(len(available_sheets))
+        if "cours_selected" not in st.session_state:
+            st.session_state.cours_selected = available_sheets[0]["fname"]
+
+        for col, sheet in zip(cols, available_sheets):
+            with col:
+                is_active = st.session_state.cours_selected == sheet["fname"]
+                border_color = "#818cf8" if is_active else "#1e1e1e"
+                bg_color = "#0f0f1a" if is_active else "#111"
+                st.markdown(
+                    f'<div style="border:1px solid {border_color};border-radius:10px;'
+                    f'background:{bg_color};padding:12px 10px;text-align:center;'
+                    f'cursor:pointer;transition:all .2s;">'
+                    f'<div style="font-size:1.4rem">{sheet["icon"]}</div>'
+                    f'<div style="font-size:0.75rem;color:#818cf8;margin:4px 0 2px">{sheet["tag"]}</div>'
+                    f'<div style="font-size:0.82rem;color:#ccc;font-weight:500">{sheet["title"]}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    "Ouvrir" if not is_active else "✓ Ouvert",
+                    key=f"cours_btn_{sheet['fname']}",
+                    use_container_width=True,
+                ):
+                    st.session_state.cours_selected = sheet["fname"]
+                    st.rerun()
+
+        st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+
+        # Display selected sheet
+        selected = next((s for s in available_sheets if s["fname"] == st.session_state.cours_selected), available_sheets[0])
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;">'
+            f'<span style="font-size:1.6rem">{selected["icon"]}</span>'
+            f'<div>'
+            f'<span style="font-size:0.72rem;color:#818cf8;letter-spacing:.08em;text-transform:uppercase">{selected["tag"]}</span><br>'
+            f'<span style="font-size:1.1rem;font-weight:600;color:#e5e5e5">{selected["title"]}</span>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        # Render markdown content (LaTeX rendered by Streamlit natively)
+        st.markdown(selected["content"])
 
 
 # ===================== TAB: DASHBOARD =====================
