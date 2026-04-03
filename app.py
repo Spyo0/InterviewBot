@@ -425,6 +425,8 @@ def init_session_state():
         "questions_asked": [],
         "question_types_asked": [],
         "question_sources": [],
+        # Conversation (follow-up)
+        "conversation": [],
         # Mode examen
         "exam_mode": False,
         "exam_questions": [],
@@ -758,6 +760,31 @@ with tab_interview:
                     "image_caption": st.session_state["current_question_image_caption"],
                 })
 
+                # Alimenter la conversation pour le follow-up
+                st.session_state["conversation"].append(
+                    {"role": "question", "content": st.session_state["current_question"]}
+                )
+                st.session_state["conversation"].append(
+                    {"role": "answer", "content": answer}
+                )
+
+                # Bouton follow-up
+                st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+                if st.button("Relance — creuser ce point", use_container_width=True, type="secondary"):
+                    with st.spinner("Génération de la relance..."):
+                        followup = engine.generate_followup(
+                            topic=st.session_state["current_question_topic"] or topic,
+                            conversation=st.session_state["conversation"],
+                            context=st.session_state["current_question_context"],
+                        )
+                    st.session_state["current_question"] = followup
+                    st.session_state["question_start_time"] = time.time()
+                    st.session_state["questions_asked"].append(followup)
+                    st.session_state["conversation"].append(
+                        {"role": "question", "content": followup}
+                    )
+                    st.rerun()
+
     # Session history
     if st.session_state["session_history"]:
         st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
@@ -810,6 +837,7 @@ with tab_interview:
             st.session_state["questions_asked"] = []
             st.session_state["question_types_asked"] = []
             st.session_state["question_sources"] = []
+            st.session_state["conversation"] = []
             st.rerun()
 
 
