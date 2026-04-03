@@ -27,8 +27,8 @@ load_dotenv()
 st.set_page_config(
     page_title="Je-Suis-Coach-AI",
     page_icon="Q",
-    layout="centered",
-    initial_sidebar_state="collapsed",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 # ---------------------------------------------------------------------------
@@ -45,8 +45,8 @@ st.markdown("""
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     .block-container {
-        max-width: 780px;
-        padding-top: 2.5rem;
+        max-width: 820px;
+        padding-top: 2rem;
         padding-bottom: 2rem;
     }
     header[data-testid="stHeader"] {
@@ -56,6 +56,79 @@ st.markdown("""
 
     /* ── Hide defaults ── */
     #MainMenu, footer, .stDeployButton { display: none !important; }
+
+    /* ── Sidebar nav ── */
+    [data-testid="stSidebar"] {
+        background: #080808 !important;
+        border-right: 1px solid #1a1a1a !important;
+    }
+    [data-testid="stSidebar"] > div:first-child {
+        padding: 1.4rem 0.8rem 1rem 0.8rem;
+    }
+    /* Nav radio group */
+    [data-testid="stSidebar"] .stRadio > div {
+        gap: 2px !important;
+        flex-direction: column;
+    }
+    [data-testid="stSidebar"] .stRadio label {
+        display: flex !important;
+        align-items: center !important;
+        gap: 0.55rem;
+        padding: 0.55rem 0.85rem !important;
+        border-radius: 8px !important;
+        font-size: 0.875rem !important;
+        font-weight: 500 !important;
+        color: #666 !important;
+        cursor: pointer;
+        transition: background 0.12s, color 0.12s;
+        width: 100%;
+    }
+    [data-testid="stSidebar"] .stRadio label:hover {
+        background: #111 !important;
+        color: #aaa !important;
+    }
+    [data-testid="stSidebar"] .stRadio label[data-checked="true"] {
+        background: #13131f !important;
+        color: #c7d2fe !important;
+    }
+    /* Hide the actual radio circle */
+    [data-testid="stSidebar"] .stRadio input[type="radio"] { display: none !important; }
+    /* Nav logo */
+    .nav-brand {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.2rem 0.85rem 1.4rem 0.85rem;
+        border-bottom: 1px solid #1a1a1a;
+        margin-bottom: 1rem;
+    }
+    .nav-logo-box {
+        width: 28px; height: 28px;
+        background: linear-gradient(135deg, #818cf8, #6366f1);
+        border-radius: 7px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 0.85rem; color: #fff;
+        flex-shrink: 0;
+    }
+    .nav-title {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #e5e5e5;
+        letter-spacing: -0.01em;
+    }
+    .nav-subtitle {
+        font-size: 0.68rem;
+        color: #444;
+        margin-top: 0.1rem;
+    }
+    .nav-section-label {
+        font-size: 0.65rem;
+        color: #333;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        padding: 0.8rem 0.85rem 0.3rem;
+        font-weight: 600;
+    }
 
     /* ── Header branding ── */
     .app-header {
@@ -426,6 +499,11 @@ def engine_supports_difficulty(engine: JeSuisCoachEngine) -> bool:
 
 def init_session_state():
     defaults = {
+        # Navigation
+        "_nav_section": "Entretien",
+        "_provider_key": os.getenv("LLM_PROVIDER", "groq"),
+        "_model_choice": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        # Engine
         "engine": None,
         "session_id": None,
         "current_question": None,
@@ -460,45 +538,33 @@ def init_session_state():
 
 init_session_state()
 
-# --- Header ---
-st.markdown(
-    '<div class="app-header">'
-    '<div class="logo">Q</div>'
-    '<span class="title">Je-Suis-Coach-AI</span>'
-    '</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    '<div class="app-subtitle">Simulateur d\'entretien — Finance quantitative</div>',
-    unsafe_allow_html=True,
-)
-
-# --- Provider & Model selector ---
-with st.expander("Parametres", expanded=False):
-    default_provider = os.getenv("LLM_PROVIDER", "groq")
-    provider_keys = list(PROVIDERS.keys())
-    provider_labels = [PROVIDERS[k]["label"] for k in provider_keys]
-    default_p_idx = provider_keys.index(default_provider) if default_provider in provider_keys else 0
-
-    provider_choice = st.selectbox(
-        "Provider", provider_labels, index=default_p_idx,
-        help="Groq = ultra-rapide, HuggingFace = large choix de modeles"
+# --- Sidebar navigation ---
+with st.sidebar:
+    st.markdown(
+        '<div class="nav-brand">'
+        '<div class="nav-logo-box">Q</div>'
+        '<div><div class="nav-title">InterviewBot</div>'
+        '<div class="nav-subtitle">Finance Quantitative</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
     )
-    provider_key = provider_keys[provider_labels.index(provider_choice)]
+    st.markdown('<div class="nav-section-label">Navigation</div>', unsafe_allow_html=True)
+    nav_section = st.radio(
+        "Navigation",
+        ["Entretien", "Cours", "Configuration", "Dashboard"],
+        key="_nav_section",
+        label_visibility="collapsed",
+        format_func=lambda x: {
+            "Entretien": "🎤  Entretien",
+            "Cours": "📚  Cours",
+            "Configuration": "⚙️  Configuration",
+            "Dashboard": "📊  Dashboard",
+        }[x],
+    )
 
-    model_options = PROVIDERS[provider_key]["models"]
-    env_defaults = {
-        "groq": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        "huggingface": os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.3"),
-    }
-    default_model = env_defaults.get(provider_key, model_options[0])
-    default_m_idx = model_options.index(default_model) if default_model in model_options else 0
-    model_choice = st.selectbox("Modele", model_options, index=default_m_idx)
-
-    if provider_key == "groq":
-        st.caption("Groq : inference ultra-rapide, 0 RAM locale. Cle API requise dans .env")
-    else:
-        st.caption("HuggingFace : inference cloud gratuite. Token API requis dans .env")
+# Read provider/model from session state (updated in Configuration tab)
+provider_key = st.session_state.get("_provider_key", os.getenv("LLM_PROVIDER", "groq"))
+model_choice = st.session_state.get("_model_choice", os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
 
 # Load engine
 engine_key = f"{provider_key}:{model_choice}"
@@ -590,626 +656,653 @@ def render_support_panel(source_ref: str = "", image_path: str | None = None, im
             )
 
 
-# --- Tabs ---
-tab_interview, tab_exam, tab_pdf, tab_cours, tab_dashboard = st.tabs(["Entretien", "Examen", "PDF", "Cours", "Dashboard"])
-
-
-# ===================== TAB: ENTRETIEN =====================
-with tab_interview:
-    has_indexed_chapters = bool(engine.get_available_chapters())
-
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        topic = st.selectbox("Theme", TOPICS, label_visibility="collapsed",
-                             help="Choisissez un theme")
-    with col2:
-        difficulty_label = st.selectbox(
-            "Difficulte",
-            DIFFICULTY_OPTIONS,
-            index=0,
-            label_visibility="collapsed",
-            help="Choisissez un niveau fixe ou laissez le bot adapter la difficulte",
-        )
-    with col3:
-        timer_duration = st.selectbox("Timer", [0, 60, 120, 180, 300],
-                                      format_func=lambda x: "Off" if x == 0 else f"{x//60}min",
-                                      index=3, label_visibility="collapsed",
-                                      help="Compte a rebours")
-
-    st.caption("Le theme est choisi ici, puis le bot selectionne automatiquement les chapitres PDF les plus pertinents.")
-    if difficulty_label == "Auto":
-        st.caption("Difficulte : automatique, selon ton score moyen de session.")
-    else:
-        st.caption(f"Difficulte forcee : {difficulty_label}.")
-    if not has_indexed_chapters:
-        st.info("Indexez au moins un PDF pour generer des questions a partir de vos supports.")
-
-    # ── Bandeau révision spaced repetition ────────────────────────────────────
-    weak = get_weak_topics(score_threshold=0.50, min_attempts=1)
-    if weak and st.session_state["session_id"] is None:
-        weak_names = [w["topic"] for w in weak]
-        with st.container():
-            st.markdown(
-                '<div class="revision-banner">'
-                '<span class="revision-icon">⚡</span>'
-                f'<span class="revision-text">À revoir : <strong>{", ".join(weak_names)}</strong></span>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
-            cols = st.columns(len(weak_names))
-            for col, w in zip(cols, weak):
-                with col:
-                    if st.button(
-                        f"{w['topic']} ({int(w['best_score']*100)}%)",
-                        key=f"revision_{w['topic']}",
-                        use_container_width=True,
-                        type="secondary",
-                    ):
-                        # Pre-select le topic dans le selectbox via session state
-                        st.session_state["_revision_topic"] = w["topic"]
-                        st.rerun()
-
-    # Appliquer la sélection de révision si elle existe
-    if "_revision_topic" in st.session_state:
-        revision_topic = st.session_state.pop("_revision_topic")
-        topic_idx = TOPICS.index(revision_topic) if revision_topic in TOPICS else None
-        if topic_idx is not None:
-            # Re-render avec le bon topic pré-sélectionné
-            topic = revision_topic
-
-    if st.button(
-        "Nouvelle question",
-        use_container_width=True,
-        type="primary",
-        disabled=not has_indexed_chapters,
-    ):
-        history_text = "\n".join(
-            f"- {question_item}" for question_item in st.session_state["questions_asked"][-5:]
-        )
-
-        avg = _session_avg_score()
-
-        try:
-            with st.spinner("Generation..."):
-                question_payload = engine.generate_question(
-                    topic=topic,
-                    history=history_text,
-                    avg_score=avg,
-                    excluded_sources=st.session_state["question_sources"],
-                    difficulty_level=None if difficulty_label == "Auto" else difficulty_label,
-                    recent_questions=st.session_state["questions_asked"],
-                    recent_question_types=st.session_state["question_types_asked"],
-                )
-        except APIError as exc:
-            st.error(f"Erreur API : {exc}")
-        except ValueError as exc:
-            st.warning(str(exc))
-        else:
-            if st.session_state["session_id"] is None:
-                st.session_state["session_id"] = create_session(topic)
-
-            st.session_state["current_question"] = question_payload["question"]
-            st.session_state["current_question_topic"] = topic
-            st.session_state["current_question_difficulty"] = question_payload["difficulty"]
-            st.session_state["current_question_type"] = question_payload.get("question_type_label", "")
-            st.session_state["current_question_context"] = question_payload["context"]
-            st.session_state["current_question_source"] = question_payload.get("display_source_ref", "")
-            st.session_state["current_question_image_path"] = question_payload.get("image_path")
-            st.session_state["current_question_image_caption"] = question_payload.get("image_caption", "")
-            st.session_state["question_start_time"] = time.time()
-            st.session_state["questions_asked"].append(question_payload["question"])
-            st.session_state["question_types_asked"].append(question_payload.get("question_type", "application"))
-            st.session_state["question_sources"].append(question_payload["source_ref"])
-
-    # Display question
-    if st.session_state["current_question"]:
-        # Timer
-        if timer_duration > 0:
-            render_timer(timer_duration)
-
-        render_markdown_panel("Question", st.session_state["current_question"])
-        st.caption(f"Difficulte de la question : {st.session_state['current_question_difficulty']}")
-        if st.session_state["current_question_type"]:
-            st.caption(f"Type de question : {st.session_state['current_question_type']}")
-        render_support_panel(
-            source_ref=st.session_state["current_question_source"],
-            image_path=st.session_state["current_question_image_path"],
-            image_caption=st.session_state["current_question_image_caption"],
-        )
-
-        answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
-                              placeholder="Ecrivez votre reponse ici...")
-
-        if st.button("Soumettre", use_container_width=True):
-            if not answer.strip():
-                st.warning("Entrez une reponse.")
-            else:
-                elapsed = time.time() - st.session_state["question_start_time"]
-
-                try:
-                    with st.spinner("Evaluation..."):
-                        evaluation = engine.evaluate_answer(
-                            st.session_state["current_question"],
-                            answer,
-                            st.session_state["current_question_topic"] or topic,
-                            context=st.session_state["current_question_context"],
-                        )
-                except APIError as exc:
-                    st.error(f"Erreur API lors de l'évaluation : {exc}")
-                    st.stop()
-
-                score = evaluation["score"]
-                feedback = evaluation["feedback"]
-                correction = evaluation["correction"]
-                strengths = evaluation.get("strengths", [])
-                mistakes = evaluation.get("mistakes", [])
-                source_used = evaluation.get("source_used", "")
-
-                save_answer(
-                    st.session_state["session_id"],
-                    st.session_state["current_question"],
-                    answer,
-                    score,
-                    elapsed,
-                    feedback,
-                    source_ref=st.session_state["current_question_source"],
-                    correction=correction,
-                    mistakes=mistakes,
-                    strengths=strengths,
-                    question_type=st.session_state["current_question_type"],
-                    difficulty=st.session_state["current_question_difficulty"],
-                    source_used=source_used,
-                )
-                update_mastery(
-                    st.session_state["current_question_topic"] or topic,
-                    score,
-                    elapsed,
-                )
-
-                st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
-
-                score_pct = int(score * 100)
-                if score >= 0.70:
-                    badge_class = "score-pass"
-                elif score >= 0.50:
-                    badge_class = "score-mid"
-                else:
-                    badge_class = "score-fail"
-
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown(
-                        f'<div class="metric-card">'
-                        f'<div class="value"><span class="score-badge {badge_class}">{score_pct}%</span></div>'
-                        f'<div class="label">Score</div></div>',
-                        unsafe_allow_html=True,
-                    )
-                with c2:
-                    st.markdown(
-                        f'<div class="metric-card">'
-                        f'<div class="value">{elapsed:.1f}s</div>'
-                        f'<div class="label">Temps de reponse</div></div>',
-                        unsafe_allow_html=True,
-                    )
-
-                # Feedback
-                render_markdown_panel("Feedback", feedback)
-                render_list_panel("Points solides", strengths)
-                render_list_panel("Points à corriger", mistakes)
-                if correction and correction.lower() != "correct":
-                    render_markdown_panel("Correction", correction)
-
-                st.session_state["session_history"].append({
-                    "question": st.session_state["current_question"],
-                    "score": score,
-                    "time": elapsed,
-                    "difficulty": st.session_state["current_question_difficulty"],
-                    "question_type": st.session_state["current_question_type"],
-                    "feedback": feedback,
-                    "correction": correction,
-                    "strengths": strengths,
-                    "mistakes": mistakes,
-                    "source_ref": st.session_state["current_question_source"],
-                    "source_used": source_used,
-                    "image_path": st.session_state["current_question_image_path"],
-                    "image_caption": st.session_state["current_question_image_caption"],
-                })
-
-                # Alimenter la conversation pour le follow-up
-                st.session_state["conversation"].append(
-                    {"role": "question", "content": st.session_state["current_question"]}
-                )
-                st.session_state["conversation"].append(
-                    {"role": "answer", "content": answer}
-                )
-
-                # Bouton follow-up
-                st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
-                if st.button("Relance — creuser ce point", use_container_width=True, type="secondary"):
-                    with st.spinner("Génération de la relance..."):
-                        followup = engine.generate_followup(
-                            topic=st.session_state["current_question_topic"] or topic,
-                            conversation=st.session_state["conversation"],
-                            context=st.session_state["current_question_context"],
-                        )
-                    st.session_state["current_question"] = followup
-                    st.session_state["question_start_time"] = time.time()
-                    st.session_state["questions_asked"].append(followup)
-                    st.session_state["conversation"].append(
-                        {"role": "question", "content": followup}
-                    )
-                    st.rerun()
-
-    # Session history
-    if st.session_state["session_history"]:
-        st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Historique de session</div>', unsafe_allow_html=True)
-        for i, item in enumerate(st.session_state["session_history"], 1):
-            score_pct = int(item["score"] * 100)
-            if item["score"] >= 0.70:
-                badge_class = "score-pass"
-            elif item["score"] >= 0.50:
-                badge_class = "score-mid"
-            else:
-                badge_class = "score-fail"
-            with st.expander(f"Q{i}  ·  {score_pct}%  ·  {item['time']:.1f}s"):
-                st.write(item["question"])
-                if item.get("difficulty"):
-                    st.caption(f"Difficulte : {item['difficulty']}")
-                if item.get("question_type"):
-                    st.caption(f"Type : {item['question_type']}")
-                if item.get("source_ref"):
-                    st.caption(f"Source : {item['source_ref']}")
-                if item.get("source_used"):
-                    st.caption(f"Source d'evaluation : {item['source_used']}")
-                if item.get("image_path"):
-                    st.image(
-                        item["image_path"],
-                        caption=item.get("image_caption") or "Support visuel du PDF",
-                        width="stretch",
-                    )
-                if item.get("feedback"):
-                    render_markdown_panel("Feedback", item["feedback"])
-                render_list_panel("Points solides", item.get("strengths", []))
-                render_list_panel("Points à corriger", item.get("mistakes", []))
-                if item.get("correction") and item["correction"].lower() != "correct":
-                    render_markdown_panel("Correction", item["correction"])
-
-    # Reset
-    if st.session_state["session_id"] is not None:
-        st.markdown("")
-        if st.button("Reinitialiser la session", type="secondary"):
-            st.session_state["session_id"] = None
-            st.session_state["current_question"] = None
-            st.session_state["current_question_topic"] = None
-            st.session_state["current_question_difficulty"] = "Auto"
-            st.session_state["current_question_type"] = ""
-            st.session_state["current_question_context"] = ""
-            st.session_state["current_question_source"] = ""
-            st.session_state["current_question_image_path"] = None
-            st.session_state["current_question_image_caption"] = ""
-            st.session_state["session_history"] = []
-            st.session_state["questions_asked"] = []
-            st.session_state["question_types_asked"] = []
-            st.session_state["question_sources"] = []
-            st.session_state["conversation"] = []
-            st.rerun()
-
-
-# ===================== TAB: EXAMEN =====================
+# ===================== SECTION: ENTRETIEN =====================
 EXAM_COUNT = 10
 
-with tab_exam:
-    if not st.session_state["exam_mode"] and st.session_state["exam_results"] is None:
+if nav_section == "Entretien":
+    tab_interview, tab_exam = st.tabs(["Entretien", "Examens"])
+
+    with tab_interview:
         has_indexed_chapters = bool(engine.get_available_chapters())
 
-        # Config exam
-        st.markdown('<div class="section-title">Mode examen</div>', unsafe_allow_html=True)
-        st.caption(f"{EXAM_COUNT} questions d'affilee · Pas de feedback entre les questions · Correction a la fin")
-        st.caption("Le theme guide la recherche, puis les chapitres PDF pertinents sont selectionnes automatiquement.")
-
-        col_exam_1, col_exam_2 = st.columns(2)
-        with col_exam_1:
-            exam_topic = st.selectbox("Theme de l'examen", TOPICS, key="exam_topic_select")
-        with col_exam_2:
-            exam_difficulty = st.selectbox(
-                "Difficulte de l'examen",
+        col1, col2, col3 = st.columns([2, 2, 1])
+        with col1:
+            topic = st.selectbox("Theme", TOPICS, label_visibility="collapsed",
+                                 help="Choisissez un theme")
+        with col2:
+            difficulty_label = st.selectbox(
+                "Difficulte",
                 DIFFICULTY_OPTIONS,
                 index=0,
-                key="exam_difficulty_select",
+                label_visibility="collapsed",
+                help="Choisissez un niveau fixe ou laissez le bot adapter la difficulte",
             )
+        with col3:
+            timer_duration = st.selectbox("Timer", [0, 60, 120, 180, 300],
+                                          format_func=lambda x: "Off" if x == 0 else f"{x//60}min",
+                                          index=3, label_visibility="collapsed",
+                                          help="Compte a rebours")
+
+        st.caption("Le theme est choisi ici, puis le bot selectionne automatiquement les chapitres PDF les plus pertinents.")
+        if difficulty_label == "Auto":
+            st.caption("Difficulte : automatique, selon ton score moyen de session.")
+        else:
+            st.caption(f"Difficulte forcee : {difficulty_label}.")
         if not has_indexed_chapters:
-            st.info("Indexez au moins un PDF avant de lancer l'examen.")
+            st.info("Indexez au moins un PDF pour generer des questions a partir de vos supports.")
+
+        # ── Bandeau révision spaced repetition ────────────────────────────────────
+        weak = get_weak_topics(score_threshold=0.50, min_attempts=1)
+        if weak and st.session_state["session_id"] is None:
+            weak_names = [w["topic"] for w in weak]
+            with st.container():
+                st.markdown(
+                    '<div class="revision-banner">'
+                    '<span class="revision-icon">⚡</span>'
+                    f'<span class="revision-text">À revoir : <strong>{", ".join(weak_names)}</strong></span>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+                cols = st.columns(len(weak_names))
+                for col, w in zip(cols, weak):
+                    with col:
+                        if st.button(
+                            f"{w['topic']} ({int(w['best_score']*100)}%)",
+                            key=f"revision_{w['topic']}",
+                            use_container_width=True,
+                            type="secondary",
+                        ):
+                            # Pre-select le topic dans le selectbox via session state
+                            st.session_state["_revision_topic"] = w["topic"]
+                            st.rerun()
+
+        # Appliquer la sélection de révision si elle existe
+        if "_revision_topic" in st.session_state:
+            revision_topic = st.session_state.pop("_revision_topic")
+            topic_idx = TOPICS.index(revision_topic) if revision_topic in TOPICS else None
+            if topic_idx is not None:
+                # Re-render avec le bon topic pré-sélectionné
+                topic = revision_topic
 
         if st.button(
-            "Lancer l'examen",
+            "Nouvelle question",
             use_container_width=True,
             type="primary",
             disabled=not has_indexed_chapters,
         ):
+            history_text = "\n".join(
+                f"- {question_item}" for question_item in st.session_state["questions_asked"][-5:]
+            )
+
+            avg = _session_avg_score()
+
             try:
-                with st.spinner("Preparation de l'examen..."):
+                with st.spinner("Generation..."):
                     question_payload = engine.generate_question(
-                        topic=exam_topic,
-                        difficulty_level=None if exam_difficulty == "Auto" else exam_difficulty,
-                        recent_questions=[],
-                        recent_question_types=[],
+                        topic=topic,
+                        history=history_text,
+                        avg_score=avg,
+                        excluded_sources=st.session_state["question_sources"],
+                        difficulty_level=None if difficulty_label == "Auto" else difficulty_label,
+                        recent_questions=st.session_state["questions_asked"],
+                        recent_question_types=st.session_state["question_types_asked"],
                     )
+            except APIError as exc:
+                st.error(f"Erreur API : {exc}")
             except ValueError as exc:
                 st.warning(str(exc))
             else:
-                st.session_state["exam_mode"] = True
-                st.session_state["exam_topic"] = exam_topic
-                st.session_state["exam_difficulty"] = exam_difficulty
-                st.session_state["exam_questions"] = [question_payload["question"]]
-                st.session_state["exam_question_meta"] = [question_payload]
-                st.session_state["exam_answers"] = []
-                st.session_state["exam_index"] = 0
-                st.session_state["exam_results"] = None
-                st.session_state["session_id"] = create_session(exam_topic, "auto_pdf")
+                if st.session_state["session_id"] is None:
+                    st.session_state["session_id"] = create_session(topic)
+
+                st.session_state["current_question"] = question_payload["question"]
+                st.session_state["current_question_topic"] = topic
+                st.session_state["current_question_difficulty"] = question_payload["difficulty"]
+                st.session_state["current_question_type"] = question_payload.get("question_type_label", "")
+                st.session_state["current_question_context"] = question_payload["context"]
+                st.session_state["current_question_source"] = question_payload.get("display_source_ref", "")
+                st.session_state["current_question_image_path"] = question_payload.get("image_path")
+                st.session_state["current_question_image_caption"] = question_payload.get("image_caption", "")
                 st.session_state["question_start_time"] = time.time()
+                st.session_state["questions_asked"].append(question_payload["question"])
+                st.session_state["question_types_asked"].append(question_payload.get("question_type", "application"))
+                st.session_state["question_sources"].append(question_payload["source_ref"])
+
+        # Display question
+        if st.session_state["current_question"]:
+            # Timer
+            if timer_duration > 0:
+                render_timer(timer_duration)
+
+            render_markdown_panel("Question", st.session_state["current_question"])
+            st.caption(f"Difficulte de la question : {st.session_state['current_question_difficulty']}")
+            if st.session_state["current_question_type"]:
+                st.caption(f"Type de question : {st.session_state['current_question_type']}")
+            render_support_panel(
+                source_ref=st.session_state["current_question_source"],
+                image_path=st.session_state["current_question_image_path"],
+                image_caption=st.session_state["current_question_image_caption"],
+            )
+
+            answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
+                                  placeholder="Ecrivez votre reponse ici...")
+
+            if st.button("Soumettre", use_container_width=True):
+                if not answer.strip():
+                    st.warning("Entrez une reponse.")
+                else:
+                    elapsed = time.time() - st.session_state["question_start_time"]
+
+                    try:
+                        with st.spinner("Evaluation..."):
+                            evaluation = engine.evaluate_answer(
+                                st.session_state["current_question"],
+                                answer,
+                                st.session_state["current_question_topic"] or topic,
+                                context=st.session_state["current_question_context"],
+                            )
+                    except APIError as exc:
+                        st.error(f"Erreur API lors de l'évaluation : {exc}")
+                        st.stop()
+
+                    score = evaluation["score"]
+                    feedback = evaluation["feedback"]
+                    correction = evaluation["correction"]
+                    strengths = evaluation.get("strengths", [])
+                    mistakes = evaluation.get("mistakes", [])
+                    source_used = evaluation.get("source_used", "")
+
+                    save_answer(
+                        st.session_state["session_id"],
+                        st.session_state["current_question"],
+                        answer,
+                        score,
+                        elapsed,
+                        feedback,
+                        source_ref=st.session_state["current_question_source"],
+                        correction=correction,
+                        mistakes=mistakes,
+                        strengths=strengths,
+                        question_type=st.session_state["current_question_type"],
+                        difficulty=st.session_state["current_question_difficulty"],
+                        source_used=source_used,
+                    )
+                    update_mastery(
+                        st.session_state["current_question_topic"] or topic,
+                        score,
+                        elapsed,
+                    )
+
+                    st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+
+                    score_pct = int(score * 100)
+                    if score >= 0.70:
+                        badge_class = "score-pass"
+                    elif score >= 0.50:
+                        badge_class = "score-mid"
+                    else:
+                        badge_class = "score-fail"
+
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown(
+                            f'<div class="metric-card">'
+                            f'<div class="value"><span class="score-badge {badge_class}">{score_pct}%</span></div>'
+                            f'<div class="label">Score</div></div>',
+                            unsafe_allow_html=True,
+                        )
+                    with c2:
+                        st.markdown(
+                            f'<div class="metric-card">'
+                            f'<div class="value">{elapsed:.1f}s</div>'
+                            f'<div class="label">Temps de reponse</div></div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    # Feedback
+                    render_markdown_panel("Feedback", feedback)
+                    render_list_panel("Points solides", strengths)
+                    render_list_panel("Points à corriger", mistakes)
+                    if correction and correction.lower() != "correct":
+                        render_markdown_panel("Correction", correction)
+
+                    st.session_state["session_history"].append({
+                        "question": st.session_state["current_question"],
+                        "score": score,
+                        "time": elapsed,
+                        "difficulty": st.session_state["current_question_difficulty"],
+                        "question_type": st.session_state["current_question_type"],
+                        "feedback": feedback,
+                        "correction": correction,
+                        "strengths": strengths,
+                        "mistakes": mistakes,
+                        "source_ref": st.session_state["current_question_source"],
+                        "source_used": source_used,
+                        "image_path": st.session_state["current_question_image_path"],
+                        "image_caption": st.session_state["current_question_image_caption"],
+                    })
+
+                    # Alimenter la conversation pour le follow-up
+                    st.session_state["conversation"].append(
+                        {"role": "question", "content": st.session_state["current_question"]}
+                    )
+                    st.session_state["conversation"].append(
+                        {"role": "answer", "content": answer}
+                    )
+
+                    # Bouton follow-up
+                    st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+                    if st.button("Relance — creuser ce point", use_container_width=True, type="secondary"):
+                        with st.spinner("Génération de la relance..."):
+                            followup = engine.generate_followup(
+                                topic=st.session_state["current_question_topic"] or topic,
+                                conversation=st.session_state["conversation"],
+                                context=st.session_state["current_question_context"],
+                            )
+                        st.session_state["current_question"] = followup
+                        st.session_state["question_start_time"] = time.time()
+                        st.session_state["questions_asked"].append(followup)
+                        st.session_state["conversation"].append(
+                            {"role": "question", "content": followup}
+                        )
+                        st.rerun()
+
+        # Session history
+        if st.session_state["session_history"]:
+            st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Historique de session</div>', unsafe_allow_html=True)
+            for i, item in enumerate(st.session_state["session_history"], 1):
+                score_pct = int(item["score"] * 100)
+                if item["score"] >= 0.70:
+                    badge_class = "score-pass"
+                elif item["score"] >= 0.50:
+                    badge_class = "score-mid"
+                else:
+                    badge_class = "score-fail"
+                with st.expander(f"Q{i}  ·  {score_pct}%  ·  {item['time']:.1f}s"):
+                    st.write(item["question"])
+                    if item.get("difficulty"):
+                        st.caption(f"Difficulte : {item['difficulty']}")
+                    if item.get("question_type"):
+                        st.caption(f"Type : {item['question_type']}")
+                    if item.get("source_ref"):
+                        st.caption(f"Source : {item['source_ref']}")
+                    if item.get("source_used"):
+                        st.caption(f"Source d'evaluation : {item['source_used']}")
+                    if item.get("image_path"):
+                        st.image(
+                            item["image_path"],
+                            caption=item.get("image_caption") or "Support visuel du PDF",
+                            width="stretch",
+                        )
+                    if item.get("feedback"):
+                        render_markdown_panel("Feedback", item["feedback"])
+                    render_list_panel("Points solides", item.get("strengths", []))
+                    render_list_panel("Points à corriger", item.get("mistakes", []))
+                    if item.get("correction") and item["correction"].lower() != "correct":
+                        render_markdown_panel("Correction", item["correction"])
+
+        # Reset
+        if st.session_state["session_id"] is not None:
+            st.markdown("")
+            if st.button("Reinitialiser la session", type="secondary"):
+                st.session_state["session_id"] = None
+                st.session_state["current_question"] = None
+                st.session_state["current_question_topic"] = None
+                st.session_state["current_question_difficulty"] = "Auto"
+                st.session_state["current_question_type"] = ""
+                st.session_state["current_question_context"] = ""
+                st.session_state["current_question_source"] = ""
+                st.session_state["current_question_image_path"] = None
+                st.session_state["current_question_image_caption"] = ""
+                st.session_state["session_history"] = []
+                st.session_state["questions_asked"] = []
+                st.session_state["question_types_asked"] = []
+                st.session_state["question_sources"] = []
+                st.session_state["conversation"] = []
                 st.rerun()
 
-    elif st.session_state["exam_mode"]:
-        idx = st.session_state["exam_index"]
-        total = EXAM_COUNT
+    with tab_exam:
+        if not st.session_state["exam_mode"] and st.session_state["exam_results"] is None:
+            has_indexed_chapters = bool(engine.get_available_chapters())
 
-        # Progress bar
-        dots_html = '<div class="exam-progress">'
-        for i in range(total):
-            if i < idx:
-                dots_html += '<div class="exam-dot done"></div>'
-            elif i == idx:
-                dots_html += '<div class="exam-dot current"></div>'
-            else:
-                dots_html += '<div class="exam-dot"></div>'
-        dots_html += '</div>'
-        st.markdown(dots_html, unsafe_allow_html=True)
+            # Config exam
+            st.markdown('<div class="section-title">Mode examen</div>', unsafe_allow_html=True)
+            st.caption(f"{EXAM_COUNT} questions d'affilee · Pas de feedback entre les questions · Correction a la fin")
+            st.caption("Le theme guide la recherche, puis les chapitres PDF pertinents sont selectionnes automatiquement.")
 
-        st.markdown(f'<div class="section-title">Question {idx + 1} / {total}</div>', unsafe_allow_html=True)
+            col_exam_1, col_exam_2 = st.columns(2)
+            with col_exam_1:
+                exam_topic = st.selectbox("Theme de l'examen", TOPICS, key="exam_topic_select")
+            with col_exam_2:
+                exam_difficulty = st.selectbox(
+                    "Difficulte de l'examen",
+                    DIFFICULTY_OPTIONS,
+                    index=0,
+                    key="exam_difficulty_select",
+                )
+            if not has_indexed_chapters:
+                st.info("Indexez au moins un PDF avant de lancer l'examen.")
 
-        # Timer
-        render_timer(180)
-
-        # Question
-        current_q = st.session_state["exam_questions"][idx]
-        current_question_meta = st.session_state["exam_question_meta"][idx]
-        render_markdown_panel("Question", current_q)
-        st.caption(f"Difficulte de la question : {current_question_meta.get('difficulty', 'Intermédiaire')}")
-        if current_question_meta.get("question_type_label"):
-            st.caption(f"Type de question : {current_question_meta['question_type_label']}")
-        render_support_panel(
-            source_ref=current_question_meta.get("display_source_ref", ""),
-            image_path=current_question_meta.get("image_path"),
-            image_caption=current_question_meta.get("image_caption", ""),
-        )
-
-        answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
-                              placeholder="Ecrivez votre reponse...", key=f"exam_answer_{idx}")
-
-        if st.button("Question suivante" if idx < total - 1 else "Terminer l'examen",
-                      use_container_width=True, type="primary"):
-            if not answer.strip():
-                st.warning("Entrez une reponse.")
-            else:
-                elapsed = time.time() - st.session_state["question_start_time"]
-                st.session_state["exam_answers"].append({
-                    "answer": answer,
-                    "time": elapsed,
-                })
-
-                if idx < total - 1:
-                    # Generate next question
-                    try:
-                        with st.spinner("Question suivante..."):
-                            question_payload = engine.generate_question(
-                                topic=st.session_state["exam_topic"],
-                                history="\n".join(
-                                    f"- {question_item}" for question_item in st.session_state["exam_questions"][-5:]
-                                ),
-                                excluded_sources=[
-                                    item["source_ref"] for item in st.session_state["exam_question_meta"]
-                                ],
-                                difficulty_level=None
-                                if st.session_state["exam_difficulty"] == "Auto"
-                                else st.session_state["exam_difficulty"],
-                                recent_questions=st.session_state["exam_questions"],
-                                recent_question_types=[
-                                    item.get("question_type")
-                                    for item in st.session_state["exam_question_meta"]
-                                    if item.get("question_type")
-                                ],
-                            )
-                    except ValueError as exc:
-                        st.warning(str(exc))
-                    else:
-                        st.session_state["exam_questions"].append(question_payload["question"])
-                        st.session_state["exam_question_meta"].append(question_payload)
-                        st.session_state["exam_index"] = idx + 1
-                        st.session_state["question_start_time"] = time.time()
-                        st.rerun()
+            if st.button(
+                "Lancer l'examen",
+                use_container_width=True,
+                type="primary",
+                disabled=not has_indexed_chapters,
+            ):
+                try:
+                    with st.spinner("Preparation de l'examen..."):
+                        question_payload = engine.generate_question(
+                            topic=exam_topic,
+                            difficulty_level=None if exam_difficulty == "Auto" else exam_difficulty,
+                            recent_questions=[],
+                            recent_question_types=[],
+                        )
+                except ValueError as exc:
+                    st.warning(str(exc))
                 else:
-                    # End exam — evaluate all answers
-                    st.session_state["exam_mode"] = False
-                    results = []
-                    with st.spinner("Correction de l'examen..."):
-                        for i, (q, a, meta) in enumerate(zip(
-                            st.session_state["exam_questions"],
-                            st.session_state["exam_answers"],
-                            st.session_state["exam_question_meta"],
-                        )):
-                            evaluation = engine.evaluate_answer(
-                                q,
-                                a["answer"],
-                                st.session_state["exam_topic"],
-                                context=meta.get("context", ""),
-                            )
-                            elapsed = a["time"]
-                            save_answer(
-                                st.session_state["session_id"],
-                                q,
-                                a["answer"],
-                                evaluation["score"],
-                                elapsed,
-                                evaluation["feedback"],
-                                source_ref=meta.get("display_source_ref", ""),
-                                correction=evaluation.get("correction", ""),
-                                mistakes=evaluation.get("mistakes", []),
-                                strengths=evaluation.get("strengths", []),
-                                question_type=meta.get("question_type_label", ""),
-                                difficulty=meta.get("difficulty", "Intermédiaire"),
-                                source_used=evaluation.get("source_used", ""),
-                            )
-                            update_mastery(st.session_state["exam_topic"], evaluation["score"], elapsed)
-                            results.append({
-                                "question": q,
-                                "answer": a["answer"],
-                                "time": elapsed,
-                                "difficulty": meta.get("difficulty", "Intermédiaire"),
-                                "question_type": meta.get("question_type_label", ""),
-                                "source_ref": meta.get("display_source_ref", ""),
-                                "source_used": evaluation.get("source_used", ""),
-                                "image_path": meta.get("image_path"),
-                                "image_caption": meta.get("image_caption", ""),
-                                **evaluation,
-                            })
-                    st.session_state["exam_results"] = results
+                    st.session_state["exam_mode"] = True
+                    st.session_state["exam_topic"] = exam_topic
+                    st.session_state["exam_difficulty"] = exam_difficulty
+                    st.session_state["exam_questions"] = [question_payload["question"]]
+                    st.session_state["exam_question_meta"] = [question_payload]
+                    st.session_state["exam_answers"] = []
+                    st.session_state["exam_index"] = 0
+                    st.session_state["exam_results"] = None
+                    st.session_state["session_id"] = create_session(exam_topic, "auto_pdf")
+                    st.session_state["question_start_time"] = time.time()
                     st.rerun()
 
-    elif st.session_state["exam_results"] is not None:
-        # Display results
-        results = st.session_state["exam_results"]
-        avg = sum(r["score"] for r in results) / len(results)
-        avg_time = sum(r["time"] for r in results) / len(results)
-        passed = sum(1 for r in results if r["score"] >= 0.70)
+        elif st.session_state["exam_mode"]:
+            idx = st.session_state["exam_index"]
+            total = EXAM_COUNT
 
-        st.markdown('<div class="section-title">Resultats de l\'examen</div>', unsafe_allow_html=True)
+            # Progress bar
+            dots_html = '<div class="exam-progress">'
+            for i in range(total):
+                if i < idx:
+                    dots_html += '<div class="exam-dot done"></div>'
+                elif i == idx:
+                    dots_html += '<div class="exam-dot current"></div>'
+                else:
+                    dots_html += '<div class="exam-dot"></div>'
+            dots_html += '</div>'
+            st.markdown(dots_html, unsafe_allow_html=True)
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            badge = "score-pass" if avg >= 0.70 else ("score-mid" if avg >= 0.50 else "score-fail")
-            st.markdown(
-                f'<div class="metric-card"><div class="value">'
-                f'<span class="score-badge {badge}">{int(avg*100)}%</span>'
-                f'</div><div class="label">Score moyen</div></div>',
-                unsafe_allow_html=True,
+            st.markdown(f'<div class="section-title">Question {idx + 1} / {total}</div>', unsafe_allow_html=True)
+
+            # Timer
+            render_timer(180)
+
+            # Question
+            current_q = st.session_state["exam_questions"][idx]
+            current_question_meta = st.session_state["exam_question_meta"][idx]
+            render_markdown_panel("Question", current_q)
+            st.caption(f"Difficulte de la question : {current_question_meta.get('difficulty', 'Intermédiaire')}")
+            if current_question_meta.get("question_type_label"):
+                st.caption(f"Type de question : {current_question_meta['question_type_label']}")
+            render_support_panel(
+                source_ref=current_question_meta.get("display_source_ref", ""),
+                image_path=current_question_meta.get("image_path"),
+                image_caption=current_question_meta.get("image_caption", ""),
             )
-        with c2:
-            st.markdown(
-                f'<div class="metric-card"><div class="value">{passed}/{len(results)}</div>'
-                f'<div class="label">Questions validees</div></div>',
-                unsafe_allow_html=True,
+
+            answer = st.text_area("Reponse", height=120, label_visibility="collapsed",
+                                  placeholder="Ecrivez votre reponse...", key=f"exam_answer_{idx}")
+
+            if st.button("Question suivante" if idx < total - 1 else "Terminer l'examen",
+                          use_container_width=True, type="primary"):
+                if not answer.strip():
+                    st.warning("Entrez une reponse.")
+                else:
+                    elapsed = time.time() - st.session_state["question_start_time"]
+                    st.session_state["exam_answers"].append({
+                        "answer": answer,
+                        "time": elapsed,
+                    })
+
+                    if idx < total - 1:
+                        # Generate next question
+                        try:
+                            with st.spinner("Question suivante..."):
+                                question_payload = engine.generate_question(
+                                    topic=st.session_state["exam_topic"],
+                                    history="\n".join(
+                                        f"- {question_item}" for question_item in st.session_state["exam_questions"][-5:]
+                                    ),
+                                    excluded_sources=[
+                                        item["source_ref"] for item in st.session_state["exam_question_meta"]
+                                    ],
+                                    difficulty_level=None
+                                    if st.session_state["exam_difficulty"] == "Auto"
+                                    else st.session_state["exam_difficulty"],
+                                    recent_questions=st.session_state["exam_questions"],
+                                    recent_question_types=[
+                                        item.get("question_type")
+                                        for item in st.session_state["exam_question_meta"]
+                                        if item.get("question_type")
+                                    ],
+                                )
+                        except ValueError as exc:
+                            st.warning(str(exc))
+                        else:
+                            st.session_state["exam_questions"].append(question_payload["question"])
+                            st.session_state["exam_question_meta"].append(question_payload)
+                            st.session_state["exam_index"] = idx + 1
+                            st.session_state["question_start_time"] = time.time()
+                            st.rerun()
+                    else:
+                        # End exam — evaluate all answers
+                        st.session_state["exam_mode"] = False
+                        results = []
+                        with st.spinner("Correction de l'examen..."):
+                            for i, (q, a, meta) in enumerate(zip(
+                                st.session_state["exam_questions"],
+                                st.session_state["exam_answers"],
+                                st.session_state["exam_question_meta"],
+                            )):
+                                evaluation = engine.evaluate_answer(
+                                    q,
+                                    a["answer"],
+                                    st.session_state["exam_topic"],
+                                    context=meta.get("context", ""),
+                                )
+                                elapsed = a["time"]
+                                save_answer(
+                                    st.session_state["session_id"],
+                                    q,
+                                    a["answer"],
+                                    evaluation["score"],
+                                    elapsed,
+                                    evaluation["feedback"],
+                                    source_ref=meta.get("display_source_ref", ""),
+                                    correction=evaluation.get("correction", ""),
+                                    mistakes=evaluation.get("mistakes", []),
+                                    strengths=evaluation.get("strengths", []),
+                                    question_type=meta.get("question_type_label", ""),
+                                    difficulty=meta.get("difficulty", "Intermédiaire"),
+                                    source_used=evaluation.get("source_used", ""),
+                                )
+                                update_mastery(st.session_state["exam_topic"], evaluation["score"], elapsed)
+                                results.append({
+                                    "question": q,
+                                    "answer": a["answer"],
+                                    "time": elapsed,
+                                    "difficulty": meta.get("difficulty", "Intermédiaire"),
+                                    "question_type": meta.get("question_type_label", ""),
+                                    "source_ref": meta.get("display_source_ref", ""),
+                                    "source_used": evaluation.get("source_used", ""),
+                                    "image_path": meta.get("image_path"),
+                                    "image_caption": meta.get("image_caption", ""),
+                                    **evaluation,
+                                })
+                        st.session_state["exam_results"] = results
+                        st.rerun()
+
+        elif st.session_state["exam_results"] is not None:
+            # Display results
+            results = st.session_state["exam_results"]
+            avg = sum(r["score"] for r in results) / len(results)
+            avg_time = sum(r["time"] for r in results) / len(results)
+            passed = sum(1 for r in results if r["score"] >= 0.70)
+
+            st.markdown('<div class="section-title">Resultats de l\'examen</div>', unsafe_allow_html=True)
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                badge = "score-pass" if avg >= 0.70 else ("score-mid" if avg >= 0.50 else "score-fail")
+                st.markdown(
+                    f'<div class="metric-card"><div class="value">'
+                    f'<span class="score-badge {badge}">{int(avg*100)}%</span>'
+                    f'</div><div class="label">Score moyen</div></div>',
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                st.markdown(
+                    f'<div class="metric-card"><div class="value">{passed}/{len(results)}</div>'
+                    f'<div class="label">Questions validees</div></div>',
+                    unsafe_allow_html=True,
+                )
+            with c3:
+                st.markdown(
+                    f'<div class="metric-card"><div class="value">{avg_time:.0f}s</div>'
+                    f'<div class="label">Temps moyen</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Correction detaillee</div>', unsafe_allow_html=True)
+
+            for i, r in enumerate(results, 1):
+                score_pct = int(r["score"] * 100)
+                if r["score"] >= 0.70:
+                    badge_class = "score-pass"
+                elif r["score"] >= 0.50:
+                    badge_class = "score-mid"
+                else:
+                    badge_class = "score-fail"
+                with st.expander(f"Q{i}  ·  {score_pct}%  ·  {r['time']:.0f}s"):
+                    st.markdown("**Question**")
+                    st.markdown(r["question"])
+                    if r.get("difficulty"):
+                        st.markdown(f"**Difficulte :** {r['difficulty']}")
+                    if r.get("question_type"):
+                        st.markdown(f"**Type :** {r['question_type']}")
+                    if r.get("source_ref"):
+                        st.markdown(f"**Source :** {r['source_ref']}")
+                    if r.get("source_used"):
+                        st.markdown(f"**Source d'evaluation :** {r['source_used']}")
+                    if r.get("image_path"):
+                        st.image(
+                            r["image_path"],
+                            caption=r.get("image_caption") or "Support visuel du PDF",
+                            width="stretch",
+                        )
+                    st.markdown("**Reponse**")
+                    st.markdown(r["answer"])
+                    st.markdown("**Feedback**")
+                    st.markdown(r["feedback"])
+                    render_list_panel("Points solides", r.get("strengths", []))
+                    render_list_panel("Points à corriger", r.get("mistakes", []))
+                    if r["correction"] and r["correction"].lower() != "correct":
+                        st.markdown("**Correction**")
+                        st.markdown(r["correction"])
+
+            if st.button("Nouvel examen", use_container_width=True, type="primary"):
+                st.session_state["exam_mode"] = False
+                st.session_state["exam_questions"] = []
+                st.session_state["exam_question_meta"] = []
+                st.session_state["exam_answers"] = []
+                st.session_state["exam_index"] = 0
+                st.session_state["exam_difficulty"] = "Auto"
+                st.session_state["exam_results"] = None
+                st.session_state["exam_topic"] = None
+                st.session_state["session_id"] = None
+                st.rerun()
+
+# ===================== SECTION: CONFIGURATION =====================
+if nav_section == "Configuration":
+    tab_settings, tab_pdf = st.tabs(["Paramètres", "PDF"])
+
+    with tab_settings:
+        st.markdown('<div class="section-title">Paramètres LLM</div>', unsafe_allow_html=True)
+
+        provider_keys = list(PROVIDERS.keys())
+        selected_provider = st.selectbox(
+            "Provider",
+            provider_keys,
+            key="_provider_key",
+            format_func=lambda key: PROVIDERS[key]["label"],
+        )
+
+        model_options = PROVIDERS[selected_provider]["models"]
+        if st.session_state.get("_model_choice") not in model_options:
+            default_model = (
+                os.getenv("GROQ_MODEL", model_options[0])
+                if selected_provider == "groq"
+                else os.getenv("HF_MODEL", model_options[0])
             )
-        with c3:
-            st.markdown(
-                f'<div class="metric-card"><div class="value">{avg_time:.0f}s</div>'
-                f'<div class="label">Temps moyen</div></div>',
-                unsafe_allow_html=True,
-            )
+            st.session_state["_model_choice"] = default_model if default_model in model_options else model_options[0]
+
+        st.selectbox("Modele", model_options, key="_model_choice")
+
+        if selected_provider == "groq":
+            st.caption("Groq : inference ultra-rapide, 0 RAM locale. Cle API requise dans .env")
+        else:
+            st.caption("HuggingFace : inference cloud gratuite. Token API requis dans .env")
+
+        st.info("Les changements de provider ou de modele rechargent automatiquement le moteur.")
+
+    with tab_pdf:
+        st.markdown('<div class="section-title">Importer des PDF</div>', unsafe_allow_html=True)
+        uploaded = st.file_uploader(
+            "PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed",
+        )
+        if uploaded:
+            existing = list_pdfs()
+            for f in uploaded:
+                if len(existing) >= 5:
+                    st.warning("Maximum 5 PDF atteint.")
+                    break
+                if f.name not in existing:
+                    path = f"data/{f.name}"
+                    with open(path, "wb") as out:
+                        out.write(f.read())
+                    existing.append(f.name)
+                    st.success(f"{f.name} ajoute.")
+
+        # List
+        pdfs = list_pdfs()
+        if pdfs:
+            st.markdown('<div class="section-title">Fichiers disponibles</div>', unsafe_allow_html=True)
+            for pdf in pdfs:
+                st.markdown(
+                    f'<div class="pdf-item"><span class="pdf-dot"></span>{pdf}</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("Aucun PDF. Deposez vos fichiers ci-dessus.")
 
         st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Correction detaillee</div>', unsafe_allow_html=True)
+        st.caption("Après une mise à jour du moteur PDF, relancez l'indexation pour obtenir des références de page et des visuels plus précis.")
 
-        for i, r in enumerate(results, 1):
-            score_pct = int(r["score"] * 100)
-            if r["score"] >= 0.70:
-                badge_class = "score-pass"
-            elif r["score"] >= 0.50:
-                badge_class = "score-mid"
-            else:
-                badge_class = "score-fail"
-            with st.expander(f"Q{i}  ·  {score_pct}%  ·  {r['time']:.0f}s"):
-                st.markdown("**Question**")
-                st.markdown(r["question"])
-                if r.get("difficulty"):
-                    st.markdown(f"**Difficulte :** {r['difficulty']}")
-                if r.get("question_type"):
-                    st.markdown(f"**Type :** {r['question_type']}")
-                if r.get("source_ref"):
-                    st.markdown(f"**Source :** {r['source_ref']}")
-                if r.get("source_used"):
-                    st.markdown(f"**Source d'evaluation :** {r['source_used']}")
-                if r.get("image_path"):
-                    st.image(
-                        r["image_path"],
-                        caption=r.get("image_caption") or "Support visuel du PDF",
-                        width="stretch",
-                    )
-                st.markdown("**Reponse**")
-                st.markdown(r["answer"])
-                st.markdown("**Feedback**")
-                st.markdown(r["feedback"])
-                render_list_panel("Points solides", r.get("strengths", []))
-                render_list_panel("Points à corriger", r.get("mistakes", []))
-                if r["correction"] and r["correction"].lower() != "correct":
-                    st.markdown("**Correction**")
-                    st.markdown(r["correction"])
+        if st.button("Indexer les PDF", type="primary", use_container_width=True):
+            with st.spinner("Indexation en cours..."):
+                n = engine.index_pdfs()
+            st.success(f"{n} chunks indexes.")
 
-        if st.button("Nouvel examen", use_container_width=True, type="primary"):
-            st.session_state["exam_mode"] = False
-            st.session_state["exam_questions"] = []
-            st.session_state["exam_question_meta"] = []
-            st.session_state["exam_answers"] = []
-            st.session_state["exam_index"] = 0
-            st.session_state["exam_difficulty"] = "Auto"
-            st.session_state["exam_results"] = None
-            st.session_state["exam_topic"] = None
-            st.session_state["session_id"] = None
-            st.rerun()
+        chapters = engine.get_available_chapters()
+        if chapters:
+            st.markdown('<div class="section-title">Chapitres indexes</div>', unsafe_allow_html=True)
+            st.caption("Ces chapitres sont ensuite selectionnes automatiquement en fonction du theme choisi.")
+            for ch in chapters:
+                st.markdown(
+                    f'<div class="pdf-item"><span class="pdf-dot"></span>{ch}</div>',
+                    unsafe_allow_html=True,
+                )
 
-
-# ===================== TAB: PDF =====================
-with tab_pdf:
-    st.markdown('<div class="section-title">Importer des PDF</div>', unsafe_allow_html=True)
-    uploaded = st.file_uploader(
-        "PDF", type=["pdf"], accept_multiple_files=True, label_visibility="collapsed",
-    )
-    if uploaded:
-        existing = list_pdfs()
-        for f in uploaded:
-            if len(existing) >= 5:
-                st.warning("Maximum 5 PDF atteint.")
-                break
-            if f.name not in existing:
-                path = f"data/{f.name}"
-                with open(path, "wb") as out:
-                    out.write(f.read())
-                existing.append(f.name)
-                st.success(f"{f.name} ajoute.")
-
-    # List
-    pdfs = list_pdfs()
-    if pdfs:
-        st.markdown('<div class="section-title">Fichiers disponibles</div>', unsafe_allow_html=True)
-        for pdf in pdfs:
-            st.markdown(
-                f'<div class="pdf-item"><span class="pdf-dot"></span>{pdf}</div>',
-                unsafe_allow_html=True,
-            )
-    else:
-        st.info("Aucun PDF. Deposez vos fichiers ci-dessus.")
-
-    st.markdown('<div class="soft-divider"></div>', unsafe_allow_html=True)
-    st.caption("Après une mise à jour du moteur PDF, relancez l'indexation pour obtenir des références de page et des visuels plus précis.")
-
-    if st.button("Indexer les PDF", type="primary", use_container_width=True):
-        with st.spinner("Indexation en cours..."):
-            n = engine.index_pdfs()
-        st.success(f"{n} chunks indexes.")
-
-    chapters = engine.get_available_chapters()
-    if chapters:
-        st.markdown('<div class="section-title">Chapitres indexes</div>', unsafe_allow_html=True)
-        st.caption("Ces chapitres sont ensuite selectionnes automatiquement en fonction du theme choisi.")
-        for ch in chapters:
-            st.markdown(
-                f'<div class="pdf-item"><span class="pdf-dot"></span>{ch}</div>',
-                unsafe_allow_html=True,
-            )
-
-
-# ===================== TAB: COURS =====================
-with tab_cours:
+# ===================== SECTION: COURS =====================
+if nav_section == "Cours":
     MASTERY_SHEETS_DIR = os.path.join(os.path.dirname(__file__), "data", "mastery_sheets")
 
     SHEET_META = {
@@ -1290,8 +1383,9 @@ with tab_cours:
         st.markdown(selected["content"])
 
 
-# ===================== TAB: DASHBOARD =====================
-with tab_dashboard:
+
+# ===================== SECTION: DASHBOARD =====================
+if nav_section == "Dashboard":
     # Summary cards
     mastery_data = get_all_mastery()
     mastery_map = {m["topic"]: m for m in mastery_data} if mastery_data else {}
